@@ -4,11 +4,12 @@
 
 # vdic: Build and Use Vec-tionaries for Text Analysis
 
-A framework for building and using vector-based dictionaries (vec-tionaries) for text analysis in R. Provide seed words scored on dimensions of interest (e.g., moral foundations, sentiment, emotions), and vdic learns axes in word-embedding space that can then score *any* word -- even words absent from the original dictionary.
+A framework for building and using vector-based dictionaries (vec-tionaries) for text analysis in R. Provide seed words scored on dimensions of interest (e.g., moral foundations, sentiment, emotions), and vdic learns axes in word-embedding space that can then score *any* word---even words absent from the original dictionary.
 
 ## Design
 
-**Users download**: Word embeddings (~1--7 GB, one-time)
+**Users download**: Word embeddings (~1-7 GB, one-time)
+
 **Users build**: Lightweight vec-tionaries (~3 MB) that work without embeddings
 
 Once built, a vec-tionary is a small self-contained object. It can be saved, shared, and reused on any machine without requiring the original embedding files.
@@ -17,7 +18,7 @@ Once built, a vec-tionary is a small self-contained object. It can be saved, sha
 
 ```r
 # Install from GitHub
-devtools::install_github("leofdantas/vdicverse")
+devtools::install_github("leofdantas/vdic")
 ```
 
 ## Building Vec-tionaries
@@ -31,7 +32,7 @@ library(vdic)
 download_embeddings(language = "pt", model = "fasttext")
 # Saves to: vdic_data/cc.pt.300.vec (in working directory)
 
-# English word2vec (Google News)
+# English word2vec (only English)
 download_embeddings(language = "en", model = "word2vec")
 # Saves to: vdic_data/GoogleNews-vectors-negative300.vec
 
@@ -84,15 +85,15 @@ my_vect$mean("Devemos proteger as pessoas vulneraveis")
 #> [1] 0.0234567
 
 # All metrics at once
-my_vect$metrics("Devemos proteger as pessoas vulneraveis")
+my_vect$metrics("We need to protect vulnerable citizens from harm")
 
 # Batch analysis: pass a vector of texts (returns named list of vectors)
-texts <- c("Proteger os vulneraveis", "Justica para todos", "O dia esta bonito")
+texts <- c("Protect vulnerable citizens", "Justice for all", "The sky is blue")
 result <- vectionary_analyze(my_vect, texts, metric = "mean")
 #> $care
-#> [1] 0.0523456 0.0123456 0.0012345
+#> [1] 0.0523456 0.0123456 0.0002345
 #> $fairness
-#> [1] 0.0234567 0.0534567 0.0023456
+#> [1] 0.0234567 0.0534567 0.0003456
 
 # Convert to data frame when needed
 as.data.frame(result)
@@ -106,7 +107,7 @@ The threshold for each dimension is:
 
 $$\text{threshold}_d = \bar{x}_d + t_{1-\alpha,\, n-1} \cdot s_d$$
 
-where $\bar{x}_d$ is the corpus mean, $s_d$ is the corpus (sample) standard deviation, and $t_{1-\alpha,\, n-1}$ is the critical value from the t-distribution.
+where $\bar{x}_d$ is the corpus mean, $s_d$ is the corpus (sample) standard deviation, and $t_{1-\alpha,n-1}$ is the critical value from the t-distribution.
 
 ```r
 texts <- c(
@@ -222,9 +223,10 @@ my_vect$metadata$seed
 
 ### Language and Spell Checking
 
+Any language from [wooorm/dictionaries](https://github.com/wooorm/dictionaries) is supported (auto-downloaded)
+
 ```r
 # Language controls stopwords and spell checking
-# Any language from wooorm/dictionaries is supported (auto-downloaded)
 vectionary_builder(dictionary, embeddings, language = "pt")
 vectionary_builder(dictionary, embeddings, language = "en")
 vectionary_builder(dictionary, embeddings, language = "fr")
@@ -329,6 +331,7 @@ Custom embeddings in `.vec` or `.txt` format (word followed by space-separated v
 This package generalizes the vec-tionary approach introduced in:
 
 - Duan, Z., Shao, A., Hu, Y., Lee, H., Liao, X., Suh, Y. J., Kim, J., et al. (2025). "Constructing Vec-Tionaries to Extract Message Features from Texts: A Case Study of Moral Content." *Political Analysis*, 1--21. doi:10.1017/pan.2025.6.
+- https://github.com/ZeningDuan/vMFD
 
 ## License
 

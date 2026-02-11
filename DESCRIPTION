@@ -1,0 +1,29 @@
+Package: vdic
+Type: Package
+Title: Build and Use Vec-tionaries for Text Analysis
+Version: 1.0.0
+Authors@R: person("Leonardo", "Dantas",
+                  email = "lf5453@princeton.edu",
+                  role = c("aut", "cre"))
+Description: A flexible framework for building and using vector-based dictionaries
+    (vec-tionaries) for text analysis. Build custom dictionaries from word embeddings
+    by providing seed words with scores on dimensions of interest (e.g., moral foundations,
+    sentiment, emotions). Users download embeddings separately and build lightweight vec-tionaries
+    that can be shared and reused without requiring the original large embedding files.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends:
+    R (>= 3.5.0)
+Imports:
+    R.utils (>= 2.10.0),
+    cli (>= 3.0.0),
+    MASS,
+    glmnet,
+    data.table,
+    stats,
+    utils
+Suggests:
+    testthat (>= 3.0.0),
+    hunspell,
+    alabama
+RoxygenNote: 7.3.3

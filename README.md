@@ -2,9 +2,12 @@
   <img src="vdic_logo.png" alt="vdic logo" width="200"/>
 </p>
 
-# vdic: Build and Use Vec-tionaries for Text Analysis
+# vdic: Build and Use Vec-tionaries for Multi-Modal Analysis
 
-A framework for building and using vector-based dictionaries (vec-tionaries) for text analysis in R. Provide seed words scored on dimensions of interest (e.g., moral foundations, sentiment, emotions), and vdic learns axes in word-embedding space that can then score *any* word---even words absent from the original dictionary.
+A framework for building and using vector-based dictionaries (vec-tionaries) for text and image analysis in R. Provide seed words (either as a character vector or a dataframe with scores on dimensions of interest) that represent a theme or topic (e.g. "politics", "environment", "democracy"), and `vdic` learns axes in an embedding space (either word-embedding or multi-modal embedding). The result is a new vector that can be used to score *any* word or image on how closely it relates to the original topic of choice.
+
+v1.0.0 currently offers word-embedding and text analysis capabilities.
+v2.0.0 (under development) will offer multi-modal and image analysis capabilities.
 
 ## Design
 
@@ -21,26 +24,26 @@ Once built, a vec-tionary is a small self-contained object. It can be saved, sha
 devtools::install_github("leofdantas/vdic")
 ```
 
-## Building Vec-tionaries
+## Building Word Vec-tionaries
 
-### 1. Download Embeddings (One-Time)
+### 1. Download Word Embeddings (One-Time)
 
 ```r
 library(vdic)
 
 # Download FastText embeddings (157 languages)
-download_embeddings(language = "pt", model = "fasttext")
-# Saves to: vdic_data/cc.pt.300.vec (in working directory)
+download_embeddings(language = "pt", model = "fasttext", dimensions = 300)
+# Saves to: vdic_data/cc.pt.300.vec
 
-# English word2vec (only English)
-download_embeddings(language = "en", model = "word2vec")
+# English word2vec (only English) or pt2vec (Portuguese)
+download_embeddings(language = "en", model = "word2vec", dimensions = 300)
 # Saves to: vdic_data/GoogleNews-vectors-negative300.vec
 
 # GloVe (English)
 download_embeddings(language = "en", model = "glove", dimensions = 300)
 ```
 
-### 2. Create a Dictionary and Build
+### 2. Create a Dictionary
 
 A dictionary can be either:
 - A **data frame** with a `word` column and one or more numeric dimension columns (binary 0/1 or continuous)
@@ -49,15 +52,19 @@ A dictionary can be either:
 ```r
 # Option A: Data frame with scores
 dictionary <- data.frame(
-  word = c("proteger", "cuidar", "ajudar", "machucar", "prejudicar", "matar"),
+  word = c("protect", "care", "help", "hurt", "prejudice", "kill"),
   care = c(0.9, 0.8, 0.7, -0.8, -0.7, -0.9),
-  fairness = c(0.1, 0.2, 0.3, 0.0, 0.1, 0.0)
+  fairness = c(0.1, 0.2, 0.3, 0.0, -0.4, 0.0)
 )
+```
 
+### 3. Build Vectionary
+
+```r
 my_vect <- vectionary_builder(
   dictionary = dictionary,
-  embeddings = "vdic_data/cc.pt.300.vec",
-  language = "pt"
+  embeddings = "vdic_data/cc.en.300.vec",
+  language = "en"
 )
 # Automatically saved to: ./vectionary.rds
 
@@ -74,32 +81,64 @@ care_vect <- vectionary_builder(
 my_vect <- vectionary_builder(dictionary, embeddings, save_path = NULL)
 ```
 
-### 3. Analyze Text
+`vectionary_builder()` is greatly customizable, with different methods of optmization, word cleaning and processing options, and vocabulary expansion. More on these arguments on \textbf{Builder Options} below.
+
+### 4. Analyze Text
 
 ```r
 # Single text (returns named list)
-my_vect$mean("Devemos proteger as pessoas vulneraveis")
+my_vect$mean("We need to protect vulnerable people")
 #> $care
-#> [1] 0.0523456
+#> [1] 0.7787368
 #> $fairness
-#> [1] 0.0234567
+#> [1] 0.6586703
 
 # All metrics at once
 my_vect$metrics("We need to protect vulnerable citizens from harm")
+#> $mean
+#> $mean$care
+#> [1] 0.7863876
+# $mean$fairness
+#> [1] 0.6470454
+# $mse
+# $mse$care
+# [1] 0.818471
+# $mse$fairness
+# [1] 0.6846322
+# $sd
+# $sd$care
+# [1] 0.2536958
+# $sd$fairness
+# [1] 0.2501337
+# $se
+# $se$care
+# [1] 0.1134562
+# $se$fairness
+# [1] 0.1118632
+# $top_10
+# $top_10$care
+# [1] 0.7863876
+# $top_10$fairness
+# [1] 0.6470454
+# $top_20
+# $top_20$care
+# [1] 0.7863876
+# $top_20$fairness
+# [1] 0.6470454
 
 # Batch analysis: pass a vector of texts (returns named list of vectors)
 texts <- c("Protect vulnerable citizens", "Justice for all", "The sky is blue")
-result <- vectionary_analyze(my_vect, texts, metric = "mean")
+vectionary_analyze(my_vect, texts, metric = "mean")
 #> $care
-#> [1] 0.0523456 0.0123456 0.0002345
+#> [1] 0.6830967 0.2095457 0.1882977
 #> $fairness
-#> [1] 0.0234567 0.0534567 0.0003456
+#> [1] 0.6262091 0.2325090 0.1148472
 
 # Convert to data frame when needed
 as.data.frame(result)
 ```
 
-### 4. Topic Classification
+### 5. Topic Classification
 
 Identify which documents exceed a statistical threshold on each dimension. When you pass `alpha` to `vectionary_analyze()`, the function computes a one-tailed t-test threshold per dimension and appends logical `_topic` columns to the result.
 
@@ -117,10 +156,10 @@ texts <- c(
   "Loyalty to your group is a sacred duty"
 )
 
-# alpha = 0.05 → documents scoring above the 95th percentile threshold
-result <- vectionary_analyze(my_vect, texts, metric = "mean", alpha = 0.05)
-result$care_p          # numeric vector of scores
-result$care_p_topic    # logical vector of topic flags
+# alpha = 0.15 → documents scoring above the 85th percentile threshold
+result <- vectionary_analyze(my_vect, texts, metric = "mean", alpha = 0.15)
+result$care        # numeric vector of scores
+result$care_topic  # logical vector of topic flags
 
 # Inspect the thresholds used
 attr(result, "threshold")
@@ -131,11 +170,11 @@ as.data.frame(result)
 
 **Notes:**
 - Requires at least 2 documents (a single text produces a warning and skips classification)
-- Works with any single metric (`"mean"`, `"rms"`, `"sd"`, `"se"`, `"top_10"`, `"top_20"`)
+- Works with any single metric (`"mean"`, `"mse"`, `"sd"`, `"se"`, `"top_10"`, `"top_20"`)
 - When `metric = "all"`, topic flags are stored in `result$topic` (a named list)
 - Lower `alpha` values (e.g., 0.01) produce stricter thresholds; higher values (e.g., 0.10) are more lenient
 
-### 5. Diagnose
+### 6. Diagnose
 
 Verify that your seed words rank near the top of the projections:
 
@@ -144,7 +183,7 @@ my_vect$diagnose()
 # Or: vectionary_diagnose(my_vect, n = 50, dimension = "care")
 ```
 
-### 6. Save and Load
+### 7. Save and Load
 
 ```r
 # Vec-tionaries are automatically saved during build
@@ -159,7 +198,7 @@ Each vec-tionary object exposes the following methods via the `$` operator:
 | Method | Description |
 |--------|-------------|
 | `$mean(text)` | Arithmetic mean of word projections |
-| `$rms(text)` | Root mean square (emphasizes high-magnitude words) |
+| `$mse(text)` | Mean square error |
 | `$sd(text)` | Standard deviation of projections |
 | `$se(text)` | Standard error of the mean |
 | `$top_10(text)` | Mean of 10 highest projections |
@@ -215,7 +254,7 @@ All random operations (Duan method initialization, AUC validation sampling) are 
 
 ```r
 # Set seed for reproducible builds
-my_vect <- vectionary_builder(dictionary, embeddings, seed = 42)
+my_vect <- vectionary_builder(dictionary, embeddings, seed = 574)
 
 # Check which seed was used (including auto-generated ones)
 my_vect$metadata$seed
@@ -248,7 +287,7 @@ Expand the training dictionary by finding semantically related words in the embe
 ```r
 vectionary_builder(
   dictionary, embeddings,
-  expand_vocab = 5000,       # add top-5000 related words
+  expand_vocab = 100,       # add top-100 related words
   expand_positive = TRUE     # keep only positively-projected words (default)
 )
 ```
@@ -319,7 +358,7 @@ Custom embeddings in `.vec` or `.txt` format (word followed by space-separated v
 
 ```bibtex
 @software{vdic,
-  title = {vdic: Build and Use Vec-tionaries for Text Analysis},
+  title = {vdic: Build and Use Vec-tionaries for Multi-Modal Analysis},
   author = {Leonardo Dantas},
   year = {2026},
   url = {https://github.com/leofdantas/vdicverse}

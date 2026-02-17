@@ -38,6 +38,14 @@
 #'     where all words score 1 on each dimension specified (or "score" if dimensions=NULL).
 #' @param embeddings Path to word embeddings file. Can be FastText .vec format,
 #'   word2vec .bin format, or GloVe .txt format.
+#' @param modality Embedding modality (default: "text"). Options:
+#'   \itemize{
+#'     \item "text": Use traditional word embeddings (FastText, word2vec, GloVe)
+#'     \item "multimodal": Use SigLIP multi-modal embeddings. Dictionary words are
+#'       encoded in the shared text-image embedding space (512-dim), creating axes
+#'       that can analyze both text and images. Requires embeddings parameter to be
+#'       "siglip" or a path to pre-computed SigLIP embeddings.
+#'   }
 #' @param language Language code for stopwords and spell checking (default: "en").
 #'   Any language supported by the wooorm/dictionaries repository can be used
 #'   (e.g., "en", "pt", "es", "fr", "de", "it", "nl", "ru"). When spellcheck = TRUE,
@@ -194,6 +202,7 @@
 vectionary_builder <- function(
   dictionary,
   embeddings,
+  modality = "text",
   language = "en",
   dimensions = NULL,
   binary_word = TRUE,
@@ -212,6 +221,11 @@ vectionary_builder <- function(
 ) {
 
 #- Input validation and conversion ----
+
+  ##- Validate modality parameter ----
+  if (!modality %in% c("text", "multimodal")) {
+    stop("modality must be either 'text' or 'multimodal', not '", modality, "'")
+  }
 
   # The dictionary can arrive in two forms:
   #   1. Character vector of words → converted to a binary data frame (all words score 1)
@@ -320,26 +334,28 @@ vectionary_builder <- function(
     dictionary$word <- tolower(dictionary$word)
   }
 
-  if (!file.exists(embeddings)) {
-    stop("Embeddings file not found: ", embeddings, "\n",
-         "Download embeddings with: download_embeddings()")
-  }
-
-  ##- Resolve language ----
-  if (!is.character(language) || length(language) != 1 || nchar(language) == 0) {
-    stop("language must be a single non-empty character string (e.g., 'en', 'pt', 'fr')")
-  }
-
-  ##- Resolve stopwords ----
-  # Stopwords can come from three sources:
-  #   remove_stopwords = TRUE  → built-in list for this language (from 01_package.R)
-  #   remove_stopwords = character vector → user-supplied custom list
-  #   remove_stopwords = FALSE → no stopword filtering (stopwords stays NULL)
+  ##- Text-mode: validate embeddings file and resolve language/stopwords ----
+  # Multimodal mode uses SigLIP (no file), so these checks only apply to text.
   stopwords <- NULL
-  if (isTRUE(remove_stopwords)) {
-    stopwords <- .get_stopwords(language)
-  } else if (is.character(remove_stopwords)) {
-    stopwords <- remove_stopwords
+  if (modality == "text") {
+    if (!file.exists(embeddings)) {
+      stop("Embeddings file not found: ", embeddings, "\n",
+           "Download embeddings with: download_embeddings()")
+    }
+
+    if (!is.character(language) || length(language) != 1 || nchar(language) == 0) {
+      stop("language must be a single non-empty character string (e.g., 'en', 'pt', 'fr')")
+    }
+
+    # Stopwords can come from three sources:
+    #   remove_stopwords = TRUE  → built-in list for this language
+    #   remove_stopwords = character vector → user-supplied custom list
+    #   remove_stopwords = FALSE → no stopword filtering (stopwords stays NULL)
+    if (isTRUE(remove_stopwords)) {
+      stopwords <- .get_stopwords(language)
+    } else if (is.character(remove_stopwords)) {
+      stopwords <- remove_stopwords
+    }
   }
 
   ##- Validate and process lambda parameter ----
@@ -466,7 +482,30 @@ vectionary_builder <- function(
   # PIPELINE
   # ════════════════════════════════════════════════
 
-  #- Banner ----
+  #- Multimodal pipeline branch ----
+  # Shared validation above runs for all modalities. From here, multimodal
+  # diverges: it encodes dictionary words with SigLIP (no file-based vocab
+  # filtering or projection) and calls the axis solvers directly with the
+  # resulting embedding matrix. Implemented in R/05_multimodal.R.
+  if (modality == "multimodal") {
+    return(.build_multimodal_axes(
+      dictionary  = dictionary,
+      dimensions  = dimensions,
+      binary_word = binary_word,
+      method      = method,
+      l1_ratio    = l1_ratio,
+      lambda      = lambda,
+      use_gcv     = use_gcv,
+      lambda_range = lambda_range,
+      min_validity = min_validity,
+      expand_vocab = expand_vocab,
+      save_path   = save_path,
+      verbose     = verbose,
+      seed        = seed
+    ))
+  }
+
+  #- Text pipeline banner ----
   if (verbose) {
     cli_h1("Building Vec-tionary")
     cli_ul(c(
@@ -701,7 +740,10 @@ vectionary_builder <- function(
     list(
       axes = result$axes,
       word_projections = word_projections,
+      image_projections = NULL,  # Only populated for multimodal vectionaries
       dimensions = dimensions,
+      modality = "text",
+      embedding_dim = length(result$axes[[1]]),  # Auto-detect from axes (300 for word2vec, 512 for SigLIP)
       metadata = list(
         method = method,
         l1_ratio = if (method == "elastic_net") l1_ratio else if (method == "lasso") 1.0 else NULL,

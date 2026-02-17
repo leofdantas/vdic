@@ -7,6 +7,7 @@
 vectionary_builder(
   dictionary,
   embeddings,
+  modality = "text",
   language = "en",
   dimensions = NULL,
   binary_word = TRUE,
@@ -33,6 +34,15 @@ vectionary_builder(
 
 \item{embeddings}{Path to word embeddings file. Can be FastText .vec format,
 word2vec .bin format, or GloVe .txt format.}
+
+\item{modality}{Embedding modality (default: "text"). Options:
+\itemize{
+  \item "text": Use traditional word embeddings (FastText, word2vec, GloVe)
+  \item "multimodal": Use SigLIP multi-modal embeddings. Dictionary words are
+    encoded in the shared text-image embedding space (512-dim), creating axes
+    that can analyze both text and images. Requires embeddings parameter to be
+    "siglip" or a path to pre-computed SigLIP embeddings.
+}}
 
 \item{language}{Language code for stopwords and spell checking (default: "en").
 Any language supported by the wooorm/dictionaries repository can be used

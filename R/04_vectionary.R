@@ -56,6 +56,17 @@ NULL
 `print.Vec-tionary` <- function(x, ...) {
   cat("Vectionary\n")
   cat("-------------------\n")
+
+  # Show modality and embedding dimension if present (Phase 1 addition).
+  # Use [[ to bypass the custom $ dispatcher — old vectionaries lack these
+  # fields and would error via $. [[ returns NULL safely for missing keys.
+  if (!is.null(x[["modality"]])) {
+    cat("Modality:", x[["modality"]], "\n")
+  }
+  if (!is.null(x[["embedding_dim"]])) {
+    cat("Embedding dimension:", x[["embedding_dim"]], "\n")
+  }
+
   cat("Dimensions:", paste(x$dimensions, collapse = ", "), "\n")
 
   # Metadata format changed between versions: older objects use
@@ -106,6 +117,17 @@ NULL
 `summary.Vec-tionary` <- function(object, ...) {
   cat("Vectionary Summary\n")
   cat("====================\n\n")
+
+  # Show modality and embedding dimension if present (Phase 1 addition).
+  # Use [[ to bypass the custom $ dispatcher — old vectionaries lack these
+  # fields and would error via $. [[ returns NULL safely for missing keys.
+  if (!is.null(object[["modality"]])) {
+    cat("Modality:", object[["modality"]], "\n")
+  }
+  if (!is.null(object[["embedding_dim"]])) {
+    cat("Embedding dimension:", object[["embedding_dim"]], "\n")
+  }
+  cat("\n")
 
   cat("Dimensions (", length(object$dimensions), "):\n", sep = "")
   for (dim in object$dimensions) {

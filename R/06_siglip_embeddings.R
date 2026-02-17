@@ -203,8 +203,17 @@
       features    <- do.call(model$model$get_text_features, call_args)
     })
 
-    # Convert torch tensor (batch_size x 1152) to R matrix
-    feat_r <- reticulate::py_to_r(features$detach()$cpu()$numpy())
+    # Convert torch tensor (batch_size x 1152) to R matrix.
+    # reticulate may auto-convert the tensor to an R matrix depending on the
+    # version. If so, skip the Python-side detach/cpu/numpy chain entirely.
+    # Some reticulate/numpy version combinations return a transposed matrix
+    # (1152 x batch_size); correct that by checking against the known batch size.
+    feat_r <- if (reticulate::is_py_object(features)) {
+      reticulate::py_to_r(features$detach()$cpu()$numpy())
+    } else {
+      as.matrix(features)
+    }
+    if (nrow(feat_r) != length(batch)) feat_r <- t(feat_r)
     result_rows[[i]] <- feat_r
 
     cli::cli_progress_update()
@@ -295,7 +304,16 @@
       )
     })
 
-    feat_r <- reticulate::py_to_r(features$detach()$cpu()$numpy())
+    # reticulate may auto-convert the tensor to an R matrix depending on the
+    # version. If so, skip the Python-side detach/cpu/numpy chain entirely.
+    # Some reticulate/numpy version combinations return a transposed matrix
+    # (1152 x batch_size); correct that by checking against the known batch size.
+    feat_r <- if (reticulate::is_py_object(features)) {
+      reticulate::py_to_r(features$detach()$cpu()$numpy())
+    } else {
+      as.matrix(features)
+    }
+    if (nrow(feat_r) != length(batch_paths)) feat_r <- t(feat_r)
     result_rows[[i]] <- feat_r
 
     cli::cli_progress_update()

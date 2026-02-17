@@ -165,10 +165,12 @@ analyze_image <- function(
     stop("vect must be a Vec-tionary object")
   }
 
-  if (is.null(vect$modality) || vect$modality != "multimodal") {
+  # Use [[ to bypass the custom $ dispatcher — old vectionaries lack modality
+  # and would error via $. [[ returns NULL safely for missing keys.
+  if (is.null(vect[["modality"]]) || vect[["modality"]] != "multimodal") {
     stop(
       "analyze_image() requires a multi-modal vectionary.\n",
-      "Current vectionary has modality: '", vect$modality %||% "text", "'\n\n",
+      "Current vectionary has modality: '", vect[["modality"]] %||% "text", "'\n\n",
       "Build one with:\n",
       "  vectionary_builder(..., modality = 'multimodal')"
     )

@@ -4,13 +4,20 @@
 \name{vdic-package}
 \alias{vdic}
 \alias{vdic-package}
-\title{vdic: Build and Use Vec-tionaries for Text Analysis}
+\title{vdic: Build and Use Vec-tionaries for Text and Image Analysis}
 \description{
 A framework for building and using vector-based dictionaries (vec-tionaries)
-for text analysis. Provide seed words scored on dimensions of interest
-(e.g., moral foundations, sentiment, populism), and vdic learns semantic axes
-in word-embedding space that can score \emph{any} word -- including words
-absent from the original dictionary.
+for text and image analysis. Provide seed words scored on dimensions of
+interest (e.g., moral foundations, sentiment, populism), and vdic learns
+semantic axes in embedding space that can score \emph{any} word or image.
+
+Text-based analysis uses R-only code and traditional word embeddings
+(FastText, word2vec, GloVe). Image analysis uses SigLIP multi-modal
+embeddings (\code{google/siglip-so400m-patch14-384}), which map both text
+and images into the same 512-dimensional space — allowing text dictionaries
+to score image content directly. Image support requires Python with the
+\code{transformers}, \code{torch}, and \code{Pillow} libraries installed and
+accessible via the \code{reticulate} package.
 }
 \details{
 \strong{Design philosophy.}
@@ -40,10 +47,21 @@ my_vect <- vectionary_builder(
 )
 }
 
-\strong{Step 3. Analyze text} using the vec-tionary:
+\strong{Step 3a. Analyze text} using the vec-tionary:
 \preformatted{
 my_vect$mean("Devemos proteger as pessoas vulneraveis")
 vectionary_analyze(my_vect, texts, metric = "mean")
+}
+
+\strong{Step 3b. Analyze images} (multi-modal; requires Python):
+\preformatted{
+# Build with SigLIP instead of word embeddings
+mm_vect <- vectionary_builder(
+  dictionary = dictionary,
+  embeddings = "siglip",
+  modality   = "multimodal"
+)
+analyze_image(mm_vect, images = c("photo1.jpg", "photo2.jpg"))
 }
 
 \strong{Step 4. Save and share} (no embeddings needed):
@@ -71,6 +89,11 @@ loaded <- readRDS("my_vectionary.rds")
   \item{[vectionary_diagnose()]}{Print a diagnostic report showing the
     top-scoring words per dimension and whether seed words rank near the
     top. Useful for verifying axis quality.}
+  \item{[analyze_image()]}{Score image files against a multi-modal
+    vec-tionary (built with \code{modality = "multimodal"}). Returns a
+    data frame with one row per image and one column per dimension.
+    Requires Python with \code{transformers}, \code{torch}, and
+    \code{Pillow} via \code{reticulate}.}
 }
 }
 
@@ -168,6 +191,12 @@ A document is flagged when its score exceeds
     symbols, and web artifacts.
   \item \code{alabama}: Required for \code{method = "duan"} (constrained
     optimization).
+  \item \code{reticulate} (>= 1.30): Required for \code{modality =
+    "multimodal"} in [vectionary_builder()] and for [analyze_image()].
+    Also requires a Python environment with \code{transformers},
+    \code{torch}, and \code{Pillow}. Set up once with:
+    \code{reticulate::py_install(c("transformers", "torch", "Pillow"))}.
+    Text-based analysis does not require Python or \code{reticulate}.
 }
 }
 

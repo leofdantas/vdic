@@ -1,28 +1,43 @@
-#' Download word embeddings 
+#' Download word or multi-modal embeddings
 #'
 #' @description
-#' Downloads pre-trained word embeddings (FastText, word2vec, etc.) from public
-#' repositories. These embeddings are required to build vec-tionaries but are NOT
-#' included in the package to keep it lightweight.
+#' Downloads pre-trained word embeddings (FastText, word2vec, GloVe) from public
+#' repositories, or triggers the download and local caching of the SigLIP
+#' multi-modal model from the Hugging Face Hub.
 #'
-#' @param language Language code: "pt" (Portuguese), "en" (English), or "es" (Spanish).
-#'   Determines which pre-trained embedding file to download.
+#' Word embedding files are required to build text-based vec-tionaries but are NOT
+#' included in the package to keep it lightweight. SigLIP is downloaded and cached
+#' once by the Python \code{transformers} library (usually to
+#' \file{~/.cache/huggingface/}); subsequent calls reuse the cached copy.
+#'
+#' @param language Language code: \code{"pt"} (Portuguese), \code{"en"} (English),
+#'   or \code{"es"} (Spanish). Ignored when \code{model = "siglip"}.
 #' @param model Embedding model to download:
 #'   \itemize{
-#'     \item \code{"fasttext"}: FastText Common Crawl embeddings (available for all languages)
-#'     \item \code{"word2vec"}: Google News word2vec (English) or PT2Vec (Portuguese only)
-#'     \item \code{"glove"}: GloVe 6B embeddings trained on Wikipedia + Gigaword (English only)
+#'     \item \code{"fasttext"}: FastText Common Crawl embeddings (all languages).
+#'     \item \code{"word2vec"}: Google News word2vec (English) or PT2Vec (Portuguese).
+#'     \item \code{"glove"}: GloVe 6B trained on Wikipedia + Gigaword (English only).
+#'     \item \code{"siglip"}: Google SigLIP multi-modal model
+#'       (\code{google/siglip-so400m-patch14-384}, 1152 dimensions). Downloads and
+#'       caches the model via the Python \code{transformers} library. Requires
+#'       \code{reticulate} and a Python environment with
+#'       \code{transformers}, \code{torch}, \code{Pillow}, and
+#'       \code{sentencepiece} installed. Returns the Hugging Face model ID string
+#'       to pass directly to \code{\link{vectionary_builder}(embeddings = ...)}.
 #'   }
-#' @param dimensions Embedding vector dimensionality (default: 300). This is the
-#'   number of numeric values per word in the embedding file, not the number of
-#'   dictionary dimensions. FastText models are available in 300 dimensions.
+#' @param dimensions Embedding vector dimensionality (default: 300). Only used for
+#'   word embedding models; ignored for \code{"siglip"}.
 #' @param destination Directory to save the downloaded embeddings file
-#'   (default: \code{vdic_data/} in the current working directory).
-#'   The directory is created automatically if it does not exist.
-#' @param force If TRUE, re-download even if the file already exists at the
-#'   destination. Useful for updating corrupted or incomplete downloads.
+#'   (default: \code{vdic_data/} in the current working directory). Only used for
+#'   word embedding models; ignored for \code{"siglip"} (HF cache is used instead).
+#' @param force If \code{TRUE}, re-download even if the file already exists.
+#'   For \code{"siglip"}, clears the session-level model cache so the model is
+#'   re-loaded from the HF cache on next use.
 #'
-#' @return Path to the downloaded embeddings file
+#' @return For word embedding models: path to the downloaded (and decompressed)
+#'   embeddings file. For \code{"siglip"}: the Hugging Face model ID string
+#'   (\code{"google/siglip-so400m-patch14-384"}), which can be passed to
+#'   \code{vectionary_builder(embeddings = ..., modality = "multimodal")}.
 #' @export
 #'
 #' @examples
@@ -32,19 +47,60 @@
 #'
 #' # Download to specific directory
 #' download_embeddings("pt", "fasttext", destination = "~/my_embeddings")
+#'
+#' # Download and cache SigLIP for multi-modal vectionaries (requires Python)
+#' download_embeddings(model = "siglip")
 #' }
 
 #- Download Embeddings ----
 download_embeddings <- function(
-  language = c("pt", "en", "es"),
-  model = c("fasttext", "word2vec", "glove"),
-  dimensions = 300,
+  language    = c("pt", "en", "es"),
+  model       = c("fasttext", "word2vec", "glove", "siglip"),
+  dimensions  = 300,
   destination = NULL,
-  force = FALSE
+  force       = FALSE
 ) {
 
   language <- match.arg(language)
-  model <- match.arg(model)
+  model    <- match.arg(model)
+
+  ##- SigLIP (multi-modal, Hugging Face) ----
+  if (model == "siglip") {
+    model_name <- "google/siglip-so400m-patch14-384"
+
+    cli_h1("Downloading SigLIP multi-modal model")
+    cli_alert_info("Model: {.val {model_name}}")
+    cli_alert_info("Dimensions: 1152 (shared text-image space)")
+    cli_alert_info(paste0(
+      "The model is downloaded once and cached by the Python ",
+      "{.pkg transformers} library (usually in {.path ~/.cache/huggingface/})."
+    ))
+    cli_alert_warning(paste0(
+      "This may take several minutes on the first download (~3 GB). ",
+      "Subsequent calls reuse the local cache."
+    ))
+
+    # Validate Python / reticulate dependencies before attempting any download
+    .check_siglip_deps()
+
+    # Optionally clear the session-level cache so the model is re-loaded
+    if (force) {
+      cache_key <- paste0("siglip_", model_name)
+      .vdic_env[[cache_key]] <- NULL
+      cli_alert_info("Session-level model cache cleared.")
+    }
+
+    # .load_siglip_model() downloads and caches via transformers; prints progress
+    .load_siglip_model(model_name)
+
+    cli_alert_success(paste0(
+      "SigLIP cached successfully. ",
+      "Pass {.val {model_name}} as the {.arg embeddings} argument to ",
+      "{.fn vectionary_builder} with {.code modality = \"multimodal\"}."
+    ))
+
+    return(invisible(model_name))
+  }
   
   # Default destination: vdic_data/ in working directory
   if (is.null(destination)) {

@@ -2,45 +2,60 @@
 % Please edit documentation in R/02_embeddings.R
 \name{download_embeddings}
 \alias{download_embeddings}
-\title{Download word embeddings}
+\title{Download word or multi-modal embeddings}
 \usage{
 download_embeddings(
   language = c("pt", "en", "es"),
-  model = c("fasttext", "word2vec", "glove"),
+  model = c("fasttext", "word2vec", "glove", "siglip"),
   dimensions = 300,
   destination = NULL,
   force = FALSE
 )
 }
 \arguments{
-\item{language}{Language code: "pt" (Portuguese), "en" (English), or "es" (Spanish).
-Determines which pre-trained embedding file to download.}
+\item{language}{Language code: \code{"pt"} (Portuguese), \code{"en"} (English),
+or \code{"es"} (Spanish). Ignored when \code{model = "siglip"}.}
 
 \item{model}{Embedding model to download:
 \itemize{
-  \item \code{"fasttext"}: FastText Common Crawl embeddings (available for all languages)
-  \item \code{"word2vec"}: Google News word2vec (English) or PT2Vec (Portuguese only)
-  \item \code{"glove"}: GloVe 6B embeddings trained on Wikipedia + Gigaword (English only)
+  \item \code{"fasttext"}: FastText Common Crawl embeddings (all languages).
+  \item \code{"word2vec"}: Google News word2vec (English) or PT2Vec (Portuguese).
+  \item \code{"glove"}: GloVe 6B trained on Wikipedia + Gigaword (English only).
+  \item \code{"siglip"}: Google SigLIP multi-modal model
+    (\code{google/siglip-so400m-patch14-384}, 1152 dimensions). Downloads and
+    caches the model via the Python \code{transformers} library. Requires
+    \code{reticulate} and a Python environment with
+    \code{transformers}, \code{torch}, \code{Pillow}, and
+    \code{sentencepiece} installed. Returns the Hugging Face model ID string
+    to pass directly to \code{\link{vectionary_builder}(embeddings = ...)}.
 }}
 
-\item{dimensions}{Embedding vector dimensionality (default: 300). This is the
-number of numeric values per word in the embedding file, not the number of
-dictionary dimensions. FastText models are available in 300 dimensions.}
+\item{dimensions}{Embedding vector dimensionality (default: 300). Only used for
+word embedding models; ignored for \code{"siglip"}.}
 
 \item{destination}{Directory to save the downloaded embeddings file
-(default: \code{vdic_data/} in the current working directory).
-The directory is created automatically if it does not exist.}
+(default: \code{vdic_data/} in the current working directory). Only used for
+word embedding models; ignored for \code{"siglip"} (HF cache is used instead).}
 
-\item{force}{If TRUE, re-download even if the file already exists at the
-destination. Useful for updating corrupted or incomplete downloads.}
+\item{force}{If \code{TRUE}, re-download even if the file already exists.
+For \code{"siglip"}, clears the session-level model cache so the model is
+re-loaded from the HF cache on next use.}
 }
 \value{
-Path to the downloaded embeddings file
+For word embedding models: path to the downloaded (and decompressed)
+  embeddings file. For \code{"siglip"}: the Hugging Face model ID string
+  (\code{"google/siglip-so400m-patch14-384"}), which can be passed to
+  \code{vectionary_builder(embeddings = ..., modality = "multimodal")}.
 }
 \description{
-Downloads pre-trained word embeddings (FastText, word2vec, etc.) from public
-repositories. These embeddings are required to build vec-tionaries but are NOT
-included in the package to keep it lightweight.
+Downloads pre-trained word embeddings (FastText, word2vec, GloVe) from public
+repositories, or triggers the download and local caching of the SigLIP
+multi-modal model from the Hugging Face Hub.
+
+Word embedding files are required to build text-based vec-tionaries but are NOT
+included in the package to keep it lightweight. SigLIP is downloaded and cached
+once by the Python \code{transformers} library (usually to
+\file{~/.cache/huggingface/}); subsequent calls reuse the cached copy.
 }
 \examples{
 \dontrun{
@@ -49,5 +64,8 @@ download_embeddings("pt", "fasttext")
 
 # Download to specific directory
 download_embeddings("pt", "fasttext", destination = "~/my_embeddings")
+
+# Download and cache SigLIP for multi-modal vectionaries (requires Python)
+download_embeddings(model = "siglip")
 }
 }

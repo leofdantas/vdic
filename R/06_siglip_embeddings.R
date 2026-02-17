@@ -195,12 +195,24 @@
     )
 
     # Run without gradient tracking (inference mode, faster + less memory)
-    # SigLIP tokenizer may not return attention_mask; pass it only when present
+    # SigLIP tokenizer may not return attention_mask; pass it only when present.
+    # Some reticulate/transformers combinations auto-convert the BatchFeature
+    # dict to an R list, turning int64 tensors into R integers. Re-wrap them
+    # as Python long tensors so PyTorch receives the expected dtype.
     with(model$torch$no_grad(), {
-      attn_mask   <- tryCatch(inputs$attention_mask, error = function(e) NULL)
-      call_args   <- list(input_ids = inputs$input_ids)
+      input_ids <- inputs$input_ids
+      if (!reticulate::is_py_object(input_ids))
+        input_ids <- model$torch$tensor(reticulate::r_to_py(input_ids),
+                                        dtype = model$torch$long)
+
+      attn_mask <- tryCatch(inputs$attention_mask, error = function(e) NULL)
+      if (!is.null(attn_mask) && !reticulate::is_py_object(attn_mask))
+        attn_mask <- model$torch$tensor(reticulate::r_to_py(attn_mask),
+                                        dtype = model$torch$long)
+
+      call_args <- list(input_ids = input_ids)
       if (!is.null(attn_mask)) call_args[["attention_mask"]] <- attn_mask
-      features    <- do.call(model$model$get_text_features, call_args)
+      features  <- do.call(model$model$get_text_features, call_args)
     })
 
     # Convert to (batch_size x emb_dim) R matrix.
@@ -299,18 +311,28 @@
   result_rows <- vector("list", length(batches))
 
   for (i in seq_along(batches)) {
-    batch_paths  <- batches[[i]]
-    pil_images   <- lapply(batch_paths, function(p) PIL$open(p)$convert("RGB"))
+    batch_paths <- batches[[i]]
+    pil_images  <- lapply(batch_paths, function(p) {
+      tryCatch(
+        PIL$open(p)$convert("RGB"),
+        error = function(e) stop("Failed to open image '", p, "': ", conditionMessage(e))
+      )
+    })
 
     inputs <- model$processor(
       images         = pil_images,
       return_tensors = "pt"
     )
 
+    # Some reticulate/transformers combinations auto-convert the BatchFeature
+    # dict to an R list, turning float32 pixel_values into R double arrays.
+    # Re-wrap as a float32 Python tensor so PyTorch receives the expected dtype.
     with(model$torch$no_grad(), {
-      features <- model$model$get_image_features(
-        pixel_values = inputs$pixel_values
-      )
+      pv <- inputs$pixel_values
+      if (!reticulate::is_py_object(pv))
+        pv <- model$torch$tensor(reticulate::r_to_py(pv),
+                                 dtype = model$torch$float32)
+      features <- model$model$get_image_features(pixel_values = pv)
     })
 
     # Convert to (batch_size x emb_dim) R matrix.

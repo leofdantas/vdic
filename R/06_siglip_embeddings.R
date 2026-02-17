@@ -203,13 +203,22 @@
       features    <- do.call(model$model$get_text_features, call_args)
     })
 
-    # Convert torch tensor (batch_size x 1152) to R matrix.
-    # reticulate may auto-convert the tensor to an R matrix depending on the
-    # version. If so, skip the Python-side detach/cpu/numpy chain entirely.
-    # Some reticulate/numpy version combinations return a transposed matrix
-    # (1152 x batch_size); correct that by checking against the known batch size.
+    # Convert to (batch_size x emb_dim) R matrix.
+    # reticulate's behaviour at the Python->R boundary varies by version:
+    #   (a) Python tensor  -> explicit detach/cpu/numpy
+    #   (b) R matrix/array -> auto-converted, use as-is (transpose if needed)
+    #   (c) R list         -> auto-converted Python ModelOutput/dict;
+    #                         extract pooled features by common key names
     feat_r <- if (reticulate::is_py_object(features)) {
       reticulate::py_to_r(features$detach()$cpu()$numpy())
+    } else if (is.list(features)) {
+      raw <- features[["text_embeds"]]
+      if (is.null(raw)) raw <- features[["pooler_output"]]
+      if (is.null(raw)) raw <- features[[1L]]
+      if (reticulate::is_py_object(raw))
+        reticulate::py_to_r(raw$detach()$cpu()$numpy())
+      else
+        as.matrix(raw)
     } else {
       as.matrix(features)
     }
@@ -304,12 +313,22 @@
       )
     })
 
-    # reticulate may auto-convert the tensor to an R matrix depending on the
-    # version. If so, skip the Python-side detach/cpu/numpy chain entirely.
-    # Some reticulate/numpy version combinations return a transposed matrix
-    # (1152 x batch_size); correct that by checking against the known batch size.
+    # Convert to (batch_size x emb_dim) R matrix.
+    # reticulate's behaviour at the Python->R boundary varies by version:
+    #   (a) Python tensor  -> explicit detach/cpu/numpy
+    #   (b) R matrix/array -> auto-converted, use as-is (transpose if needed)
+    #   (c) R list         -> auto-converted Python ModelOutput/dict;
+    #                         extract pooled features by common key names
     feat_r <- if (reticulate::is_py_object(features)) {
       reticulate::py_to_r(features$detach()$cpu()$numpy())
+    } else if (is.list(features)) {
+      raw <- features[["image_embeds"]]
+      if (is.null(raw)) raw <- features[["pooler_output"]]
+      if (is.null(raw)) raw <- features[[1L]]
+      if (reticulate::is_py_object(raw))
+        reticulate::py_to_r(raw$detach()$cpu()$numpy())
+      else
+        as.matrix(raw)
     } else {
       as.matrix(features)
     }

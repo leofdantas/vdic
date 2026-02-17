@@ -15,22 +15,22 @@
 \arguments{
 \item{image_paths}{Character vector of paths to image files (JPEG, PNG, etc.)}
 
-\item{model}{Named list from [.load_siglip_model()]. If NULL (default), loads
-the model automatically using the default model name.}
+\item{model}{Named list from \code{.load_siglip_model()}. If NULL (default),
+loads the model automatically.}
 
-\item{model_name}{SigLIP model ID (default: "google/siglip-so400m-patch14-384").
-Only used when model = NULL.}
+\item{model_name}{SigLIP model ID (default: \code{"google/siglip-so400m-patch14-384"}).
+Only used when \code{model = NULL}.}
 
 \item{normalize}{Logical. If TRUE (default), normalizes each embedding to unit
-length (L2 norm = 1). SigLIP embeddings are designed to be unit-normalized;
-this ensures projections are cosine-similarity-based.}
+length. SigLIP embeddings are designed to be unit-normalized; this ensures
+projections are cosine-similarity-based.}
 
 \item{batch_size}{Integer. Number of images to encode per batch (default: 32).
 Reduce if running out of memory. Larger batches are faster on GPU.}
 }
 \value{
-Numeric matrix of shape (length(image_paths) x 512). Row names are
-  set to basename(image_paths).
+Numeric matrix of shape \eqn{n \times 512}. Row names are
+  set to \code{image_paths}.
 }
 \description{
 Encodes a character vector of image file paths into 512-dimensional vectors
@@ -39,6 +39,6 @@ text-image embedding space as the text embeddings, so images can be scored by
 vectionaries whose axes were learned from text.
 
 Requires Python with the transformers, torch, and Pillow libraries.
-See [vectionary_builder()] for setup instructions.
+Call \code{.check_siglip_deps()} before this function.
 }
 \keyword{internal}

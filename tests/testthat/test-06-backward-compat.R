@@ -131,7 +131,7 @@ test_that("analyze_image() errors on non-vectionary input", {
 
 #-- multimodal builder gives informative not-yet-implemented error ----
 
-test_that("vectionary_builder() with modality='multimodal' gives clear error", {
+test_that("vectionary_builder() with modality='multimodal' gives informative Python error", {
   err <- tryCatch(
     vectionary_builder(
       dictionary = data.frame(word = c("protect", "harm"), care = c(1, 0)),
@@ -140,6 +140,8 @@ test_that("vectionary_builder() with modality='multimodal' gives clear error", {
     ),
     error = function(e) conditionMessage(e)
   )
-  expect_match(err, "not yet implemented")
-  expect_match(err, "reticulate")
+  # Phase 2: now correctly errors on missing Python / reticulate setup
+  expect_true(
+    grepl("reticulate", err) || grepl("Python", err) || grepl("transformers", err)
+  )
 })

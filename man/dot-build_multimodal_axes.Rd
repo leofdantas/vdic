@@ -21,45 +21,42 @@
 )
 }
 \arguments{
-\item{dictionary}{Data frame with 'word' and dimension columns, already validated
-and binary-converted by [vectionary_builder()]}
+\item{dictionary}{Data frame with 'word' and dimension columns, already
+validated and binary-converted by [vectionary_builder()]}
 
 \item{dimensions}{Character vector of dimension names}
 
-\item{binary_word}{Logical passed through from [vectionary_builder()]}
+\item{binary_word}{Logical. Passed through for metadata recording only}
 
 \item{method}{Regularization method ("ridge", "elastic_net", "lasso", "duan")}
 
 \item{l1_ratio}{Elastic net mixing parameter}
 
-\item{lambda}{Regularization parameter (numeric or NULL if use_gcv)}
+\item{lambda}{Regularization parameter (numeric) or NULL when use_gcv = TRUE}
 
-\item{use_gcv}{Logical. If TRUE, select lambda via GCV}
+\item{use_gcv}{Logical. If TRUE, selects lambda via GCV per dimension}
 
-\item{lambda_range}{Numeric vector of lambda candidates, or NULL}
+\item{lambda_range}{Numeric vector of lambda candidates for grid search, or NULL}
 
-\item{min_validity}{Minimum validity threshold for lambda selection}
+\item{min_validity}{Minimum validity threshold for grid search lambda selection}
 
-\item{expand_vocab}{Integer or NULL}
+\item{expand_vocab}{Integer or NULL. Silently ignored for multimodal}
 
-\item{save_path}{Where to save the resulting vectionary}
+\item{save_path}{Where to save the resulting vectionary (character or NULL)}
 
-\item{verbose}{Logical}
+\item{verbose}{Logical. If TRUE, prints progress messages}
 
-\item{seed}{Integer seed for reproducibility}
+\item{seed}{Integer seed for reproducibility (used by duan method)}
 }
 \value{
-A Vec-tionary S3 object with:
-  - `modality = "multimodal"`
-  - `embedding_dim = 512`
-  - `word_projections = NULL`
-  - `image_projections = NULL` (populated by [analyze_image()] at analysis time)
+A Vec-tionary S3 object with \code{modality = "multimodal"}
 }
 \description{
-Called from [vectionary_builder()] when `modality = "multimodal"`, after all
-shared input validation has run. Encodes dictionary words using SigLIP's text
-encoder, then calls the same axis solvers used by the text pipeline. Returns a
-Vec-tionary object with `modality = "multimodal"` and `word_projections = NULL`
-(since SigLIP has no fixed vocabulary; images are projected at analysis time).
+Called from [vectionary_builder()] when \code{modality = "multimodal"}, after
+all shared input validation has run. Encodes dictionary words using SigLIP's
+text encoder, selects lambda via GCV, then calls the same axis solvers used by
+the text pipeline. Returns a Vec-tionary object with \code{modality =
+"multimodal"} and \code{word_projections = NULL} (SigLIP has no fixed vocabulary;
+images are projected at analysis time by [analyze_image()]).
 }
 \keyword{internal}

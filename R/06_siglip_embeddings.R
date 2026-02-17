@@ -39,7 +39,6 @@
 #' @keywords internal
 .check_siglip_deps <- function() {
 
-  # Check for reticulate R package
   if (!requireNamespace("reticulate", quietly = TRUE)) {
     stop(
       "The 'reticulate' package is required for multi-modal vectionaries.\n\n",
@@ -52,7 +51,6 @@
     )
   }
 
-  # Check that a Python environment is available and configured
   if (!reticulate::py_available(initialize = FALSE)) {
     stop(
       "No Python environment found. reticulate requires a working Python installation.\n\n",
@@ -65,12 +63,11 @@
     )
   }
 
-  # Check for the three required Python libraries
-  required <- c("transformers", "torch", "PIL")
-  missing  <- required[!vapply(required, reticulate::py_module_available, logical(1L))]
+  required  <- c("transformers", "torch", "PIL")
+  missing   <- required[!vapply(required, reticulate::py_module_available, logical(1L))]
 
   if (length(missing) > 0L) {
-    pkg_names <- gsub("PIL", "Pillow", missing)  # PIL installs as Pillow
+    pkg_names <- gsub("PIL", "Pillow", missing)
     stop(
       "The following Python libraries are required but not found: ",
       paste(missing, collapse = ", "), "\n\n",
@@ -92,27 +89,50 @@
 #' @description
 #' Loads the SigLIP processor and model from the Hugging Face hub using the
 #' Python transformers library. The model is cached locally by the transformers
-#' library on first download (usually to ~/.cache/huggingface/).
+#' library on first download (usually to \file{~/.cache/huggingface/}).
 #'
-#' @param model_name Hugging Face model ID (default: "google/siglip-so400m-patch14-384")
+#' The loaded model is cached in \code{.vdic_env$siglip_model} for the R
+#' session, so subsequent calls with the same \code{model_name} skip the
+#' download and loading step.
+#'
+#' @param model_name Hugging Face model ID
+#'   (default: \code{"google/siglip-so400m-patch14-384"})
 #'
 #' @return Named list with elements:
-#'   - processor: SiglipProcessor instance
-#'   - model: SiglipModel instance (eval mode, no gradients)
+#'   \describe{
+#'     \item{processor}{SiglipProcessor instance}
+#'     \item{model}{SiglipModel instance (eval mode, no gradients)}
+#'     \item{torch}{torch Python module}
+#'   }
 #'
 #' @keywords internal
 .load_siglip_model <- function(model_name = "google/siglip-so400m-patch14-384") {
 
-  transformers <- reticulate::import("transformers", delay_load = TRUE)
-  torch        <- reticulate::import("torch",        delay_load = TRUE)
+  # Return cached model if already loaded for this model_name
+  cache_key <- paste0("siglip_", model_name)
+  if (!is.null(.vdic_env[[cache_key]])) {
+    return(.vdic_env[[cache_key]])
+  }
+
+  cli::cli_progress_step("Loading SigLIP model ({model_name})", spinner = TRUE)
+
+  transformers <- reticulate::import("transformers", delay_load = FALSE)
+  torch        <- reticulate::import("torch",        delay_load = FALSE)
 
   processor <- transformers$AutoProcessor$from_pretrained(model_name)
   model     <- transformers$AutoModel$from_pretrained(model_name)
 
-  # Evaluation mode — disables dropout, batch norm training behavior, etc.
+  # Evaluation mode — disables dropout and batch norm training behaviour
   model$eval()
 
-  list(processor = processor, model = model, torch = torch)
+  result <- list(processor = processor, model = model, torch = torch)
+
+  # Cache for reuse within the session
+  .vdic_env[[cache_key]] <- result
+
+  cli::cli_progress_done()
+
+  result
 }
 
 
@@ -127,21 +147,21 @@
 #' means they can be used to build axes that score images.
 #'
 #' Requires Python with the transformers, torch, and Pillow libraries.
-#' See [vectionary_builder()] for setup instructions.
+#' Call \code{.check_siglip_deps()} before this function.
 #'
 #' @param text_strings Character vector of words or phrases to encode
-#' @param model Named list from [.load_siglip_model()]. If NULL (default), loads
-#'   the model automatically using the default model name.
-#' @param model_name SigLIP model ID (default: "google/siglip-so400m-patch14-384").
-#'   Only used when model = NULL.
+#' @param model Named list from \code{.load_siglip_model()}. If NULL (default),
+#'   loads the model automatically.
+#' @param model_name SigLIP model ID (default: \code{"google/siglip-so400m-patch14-384"}).
+#'   Only used when \code{model = NULL}.
 #' @param normalize Logical. If TRUE (default), normalizes each embedding to unit
-#'   length (L2 norm = 1). SigLIP embeddings are designed to be unit-normalized;
-#'   this ensures projections are cosine-similarity-based.
+#'   length. SigLIP embeddings are designed to be unit-normalized; this ensures
+#'   projections are cosine-similarity-based.
 #' @param batch_size Integer. Number of strings to encode per batch (default: 64).
 #'   Larger batches are faster but use more memory.
 #'
-#' @return Numeric matrix of shape (length(text_strings) x 512). Row names are
-#'   set to text_strings.
+#' @return Numeric matrix of shape \eqn{n \times 512}. Row names are
+#'   set to \code{text_strings}.
 #'
 #' @keywords internal
 .encode_text_siglip <- function(
@@ -152,13 +172,51 @@
   batch_size = 64L
 ) {
 
-  # Phase 1: Skeleton implementation
-  # Full implementation in Phase 2
+  if (is.null(model)) model <- .load_siglip_model(model_name)
 
-  stop(
-    ".encode_text_siglip() is not yet implemented.\n",
-    "Full implementation coming in Phase 2 (vdic v1.2.0)."
+  n       <- length(text_strings)
+  batches <- split(text_strings, ceiling(seq_len(n) / batch_size))
+
+  cli::cli_progress_bar(
+    "Encoding {n} word{?s} with SigLIP",
+    total = length(batches)
   )
+
+  result_rows <- vector("list", length(batches))
+
+  for (i in seq_along(batches)) {
+    batch <- as.list(batches[[i]])
+
+    inputs <- model$processor(
+      text            = batch,
+      padding         = TRUE,
+      truncation      = TRUE,
+      return_tensors  = "pt"
+    )
+
+    # Run without gradient tracking (inference mode, faster + less memory)
+    with(model$torch$no_grad(), {
+      features <- model$model$get_text_features(
+        input_ids      = inputs$input_ids,
+        attention_mask = inputs$attention_mask
+      )
+    })
+
+    # Convert torch tensor (batch_size x 512) to R matrix
+    feat_r <- reticulate::py_to_r(features$detach()$cpu()$numpy())
+    result_rows[[i]] <- feat_r
+
+    cli::cli_progress_update()
+  }
+
+  cli::cli_progress_done()
+
+  emb <- do.call(rbind, result_rows)
+  rownames(emb) <- text_strings
+
+  if (normalize) emb <- .l2_normalize_rows(emb)
+
+  emb
 }
 
 
@@ -173,21 +231,21 @@
 #' vectionaries whose axes were learned from text.
 #'
 #' Requires Python with the transformers, torch, and Pillow libraries.
-#' See [vectionary_builder()] for setup instructions.
+#' Call \code{.check_siglip_deps()} before this function.
 #'
 #' @param image_paths Character vector of paths to image files (JPEG, PNG, etc.)
-#' @param model Named list from [.load_siglip_model()]. If NULL (default), loads
-#'   the model automatically using the default model name.
-#' @param model_name SigLIP model ID (default: "google/siglip-so400m-patch14-384").
-#'   Only used when model = NULL.
+#' @param model Named list from \code{.load_siglip_model()}. If NULL (default),
+#'   loads the model automatically.
+#' @param model_name SigLIP model ID (default: \code{"google/siglip-so400m-patch14-384"}).
+#'   Only used when \code{model = NULL}.
 #' @param normalize Logical. If TRUE (default), normalizes each embedding to unit
-#'   length (L2 norm = 1). SigLIP embeddings are designed to be unit-normalized;
-#'   this ensures projections are cosine-similarity-based.
+#'   length. SigLIP embeddings are designed to be unit-normalized; this ensures
+#'   projections are cosine-similarity-based.
 #' @param batch_size Integer. Number of images to encode per batch (default: 32).
 #'   Reduce if running out of memory. Larger batches are faster on GPU.
 #'
-#' @return Numeric matrix of shape (length(image_paths) x 512). Row names are
-#'   set to basename(image_paths).
+#' @return Numeric matrix of shape \eqn{n \times 512}. Row names are
+#'   set to \code{image_paths}.
 #'
 #' @keywords internal
 .encode_images_siglip <- function(
@@ -198,11 +256,71 @@
   batch_size = 32L
 ) {
 
-  # Phase 1: Skeleton implementation
-  # Full implementation in Phase 2
+  if (is.null(model)) model <- .load_siglip_model(model_name)
 
-  stop(
-    ".encode_images_siglip() is not yet implemented.\n",
-    "Full implementation coming in Phase 2 (vdic v1.2.0)."
+  # Validate all paths before starting
+  missing_files <- image_paths[!file.exists(image_paths)]
+  if (length(missing_files) > 0L) {
+    stop(
+      length(missing_files), " image file(s) not found:\n",
+      paste0("  ", head(missing_files, 5), collapse = "\n"),
+      if (length(missing_files) > 5) paste0("\n  ... (", length(missing_files), " total)") else ""
+    )
+  }
+
+  PIL     <- reticulate::import("PIL.Image", delay_load = FALSE)
+  n       <- length(image_paths)
+  batches <- split(image_paths, ceiling(seq_len(n) / batch_size))
+
+  cli::cli_progress_bar(
+    "Encoding {n} image{?s} with SigLIP",
+    total = length(batches)
   )
+
+  result_rows <- vector("list", length(batches))
+
+  for (i in seq_along(batches)) {
+    batch_paths  <- batches[[i]]
+    pil_images   <- lapply(batch_paths, function(p) PIL$open(p)$convert("RGB"))
+
+    inputs <- model$processor(
+      images         = pil_images,
+      return_tensors = "pt"
+    )
+
+    with(model$torch$no_grad(), {
+      features <- model$model$get_image_features(
+        pixel_values = inputs$pixel_values
+      )
+    })
+
+    feat_r <- reticulate::py_to_r(features$detach()$cpu()$numpy())
+    result_rows[[i]] <- feat_r
+
+    cli::cli_progress_update()
+  }
+
+  cli::cli_progress_done()
+
+  emb <- do.call(rbind, result_rows)
+  rownames(emb) <- image_paths
+
+  if (normalize) emb <- .l2_normalize_rows(emb)
+
+  emb
+}
+
+
+#-- Internal: L2 row normalization ----
+
+#' Normalize matrix rows to unit L2 norm (internal)
+#'
+#' @param m Numeric matrix
+#' @return Matrix with each row scaled to unit Euclidean length. Rows with
+#'   zero norm are left unchanged.
+#' @keywords internal
+.l2_normalize_rows <- function(m) {
+  norms <- sqrt(rowSums(m^2))
+  norms[norms == 0] <- 1  # avoid division by zero
+  m / norms
 }

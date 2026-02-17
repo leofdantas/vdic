@@ -7,16 +7,24 @@
 .load_siglip_model(model_name = "google/siglip-so400m-patch14-384")
 }
 \arguments{
-\item{model_name}{Hugging Face model ID (default: "google/siglip-so400m-patch14-384")}
+\item{model_name}{Hugging Face model ID
+(default: \code{"google/siglip-so400m-patch14-384"})}
 }
 \value{
 Named list with elements:
-  - processor: SiglipProcessor instance
-  - model: SiglipModel instance (eval mode, no gradients)
+  \describe{
+    \item{processor}{SiglipProcessor instance}
+    \item{model}{SiglipModel instance (eval mode, no gradients)}
+    \item{torch}{torch Python module}
+  }
 }
 \description{
 Loads the SigLIP processor and model from the Hugging Face hub using the
 Python transformers library. The model is cached locally by the transformers
-library on first download (usually to ~/.cache/huggingface/).
+library on first download (usually to \file{~/.cache/huggingface/}).
+
+The loaded model is cached in \code{.vdic_env$siglip_model} for the R
+session, so subsequent calls with the same \code{model_name} skip the
+download and loading step.
 }
 \keyword{internal}

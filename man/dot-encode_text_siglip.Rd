@@ -15,22 +15,22 @@
 \arguments{
 \item{text_strings}{Character vector of words or phrases to encode}
 
-\item{model}{Named list from [.load_siglip_model()]. If NULL (default), loads
-the model automatically using the default model name.}
+\item{model}{Named list from \code{.load_siglip_model()}. If NULL (default),
+loads the model automatically.}
 
-\item{model_name}{SigLIP model ID (default: "google/siglip-so400m-patch14-384").
-Only used when model = NULL.}
+\item{model_name}{SigLIP model ID (default: \code{"google/siglip-so400m-patch14-384"}).
+Only used when \code{model = NULL}.}
 
 \item{normalize}{Logical. If TRUE (default), normalizes each embedding to unit
-length (L2 norm = 1). SigLIP embeddings are designed to be unit-normalized;
-this ensures projections are cosine-similarity-based.}
+length. SigLIP embeddings are designed to be unit-normalized; this ensures
+projections are cosine-similarity-based.}
 
 \item{batch_size}{Integer. Number of strings to encode per batch (default: 64).
 Larger batches are faster but use more memory.}
 }
 \value{
-Numeric matrix of shape (length(text_strings) x 512). Row names are
-  set to text_strings.
+Numeric matrix of shape \eqn{n \times 512}. Row names are
+  set to \code{text_strings}.
 }
 \description{
 Encodes a character vector of text strings (typically dictionary words or
@@ -39,6 +39,6 @@ The resulting vectors live in the shared text-image embedding space, which
 means they can be used to build axes that score images.
 
 Requires Python with the transformers, torch, and Pillow libraries.
-See [vectionary_builder()] for setup instructions.
+Call \code{.check_siglip_deps()} before this function.
 }
 \keyword{internal}

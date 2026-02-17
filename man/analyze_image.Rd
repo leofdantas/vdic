@@ -12,45 +12,45 @@ analyze_image(
 )
 }
 \arguments{
-\item{vect}{A Vec-tionary object with `modality = "multimodal"`, built with
-[vectionary_builder()] using `modality = "multimodal"`.}
+\item{vect}{A Vec-tionary object with \code{modality = "multimodal"}, built with
+[vectionary_builder()] using \code{modality = "multimodal"}.}
 
 \item{images}{Character vector of image file paths to analyze. Accepts JPEG,
 PNG, BMP, and other formats supported by Pillow.}
 
 \item{model_name}{SigLIP model ID on Hugging Face Hub (default:
-`"google/siglip-so400m-patch14-384"`). The model is downloaded and cached
-by the `transformers` library on first use (approximately 800 MB). Must
-match the model used when building the vectionary.}
+\code{"google/siglip-so400m-patch14-384"}). The model is downloaded and
+cached by the \code{transformers} library on first use (approximately 800 MB).
+Must match the model used when building the vectionary.}
 
 \item{batch_size}{Integer. Number of images to encode per batch (default: 32).
 Reduce if you run out of memory; increase for faster processing on GPU.}
 }
 \value{
 Data frame with one row per image and one column per dimension, plus
-  an `image` column with the original file path. Scores are cosine-similarity-
-  based projections — higher values indicate stronger semantic alignment with
-  the dimension's dictionary words.
+  an \code{image} column with the original file path. Scores are
+  cosine-similarity-based projections — higher values indicate stronger
+  semantic alignment with the dimension's dictionary words.
 }
 \description{
 Scores a set of image files on the semantic dimensions of a multi-modal
 vectionary. Each image is encoded to a 512-dimensional SigLIP vector and
 projected onto the vectionary's learned axes.
 
-The vectionary must have been built with `modality = "multimodal"` in
+The vectionary must have been built with \code{modality = "multimodal"} in
 [vectionary_builder()], meaning its axes were learned from dictionary words
 encoded via SigLIP's text encoder. Because SigLIP maps both text and images
 into the same 512-dimensional space, images can be scored by those same axes
 — no labeled image training data required.
 
-**Python required:** Encoding images requires Python with the `transformers`,
-`torch`, and `Pillow` libraries, accessible via the `reticulate` package.
-Set up once with:
-```r
+**Python required:** Encoding images requires Python with the \code{transformers},
+\code{torch}, and \code{Pillow} libraries, accessible via the \code{reticulate}
+package. Set up once with:
+\preformatted{
 install.packages("reticulate")
 reticulate::install_miniconda()   # skip if Python is already configured
 reticulate::py_install(c("transformers", "torch", "Pillow"))
-```
+}
 }
 \examples{
 \dontrun{

@@ -7,12 +7,12 @@
 #
 #   1. Tokenize the text (lowercase, strip punctuation, split on whitespace)
 #   2. Look up each token's projection score in the vectionary's word_projections
-#   3. Aggregate those scores into a single number per dimension (mean, rms, etc.)
+#   3. Aggregate those scores into a single number per dimension (mean, mse, etc.)
 #
 # Two code paths exist for efficiency:
 #   - Single-document path: .get_doc_scores() + per-dimension sapply
 #   - Batch path: .tokenize_and_match() + matrix operations via .batch_metric()
-# The per-metric wrapper functions (.mean, .rms, etc.) auto-dispatch between them.
+# The per-metric wrapper functions (.mean, .mse, etc.) auto-dispatch between them.
 
 
 #' Vec-tionary S3 Class
@@ -26,7 +26,7 @@
 #' They provide methods to compute various metrics on text:
 #' \itemize{
 #'   \item `$mean(text)` - Arithmetic mean of projections
-#'   \item `$rms(text)` - Root mean square (emphasizes high-magnitude projections)
+#'   \item `$mse(text)` - Mean squared error (emphasizes high-magnitude projections)
 #'   \item `$sd(text)` - Standard deviation of projections
 #'   \item `$se(text)` - Standard error of the mean
 #'   \item `$top_10(text)` - Mean of 10 highest projections (strongest signals)
@@ -95,7 +95,7 @@ NULL
 
   cat("\nAvailable methods:\n")
   cat("  $mean(text)    - Arithmetic mean of projections\n")
-  cat("  $rms(text)     - Root mean square (emphasizes high values)\n")
+  cat("  $mse(text)     - Mean squared error (emphasizes high values)\n")
   cat("  $sd(text)      - Standard deviation\n")
   cat("  $se(text)      - Standard error of the mean\n")
   cat("  $top_10(text)  - Mean of top 10 projections (strongest signals)\n")
@@ -194,7 +194,7 @@ NULL
   # These are the method names that return a scoring function.
   # When the user writes vect$mean, this returns a *function* that they
   # then call with text: vect$mean("some document").
-  valid_methods <- c("mean", "rms", "sd", "se", "top_10", "top_20", "metrics")
+  valid_methods <- c("mean", "mse", "sd", "se", "top_10", "top_20", "metrics")
 
   if (name == "diagnose") {
     # $diagnose returns a function with different signature (n, dimension)
@@ -207,11 +207,11 @@ NULL
     # Return a closure that captures the vectionary's word_projections and
     # dimensions, so the user only needs to pass text when calling it.
     # Each closure dispatches to the corresponding internal metric function
-    # (e.g., .mean, .rms), which handles both single-doc and batch paths.
+    # (e.g., .mean, .mse), which handles both single-doc and batch paths.
     return(function(text) {
       switch(name,
         mean = .mean(text, x$word_projections, x$dimensions),
-        rms = .rms(text, x$word_projections, x$dimensions),
+        mse = .mse(text, x$word_projections, x$dimensions),
         sd = .sd(text, x$word_projections, x$dimensions),
         se = .se(text, x$word_projections, x$dimensions),
         top_10 = .top_10(text, x$word_projections, x$dimensions),
@@ -247,7 +247,7 @@ NULL
 #' @param metric Which aggregation metric to calculate (default: "mean"):
 #'   \itemize{
 #'     \item \code{"mean"}: Arithmetic mean of word projections — general-purpose summary
-#'     \item \code{"rms"}: Root mean square — emphasizes high-magnitude projections
+#'     \item \code{"mse"}: Root mean square — emphasizes high-magnitude projections
 #'     \item \code{"sd"}: Standard deviation — spread of projections within the document
 #'     \item \code{"se"}: Standard error of the mean — precision of the mean estimate
 #'     \item \code{"top_10"}: Mean of the 10 highest projections — strongest signals only
@@ -274,7 +274,7 @@ NULL
 #' my_vect <- readRDS("my_vectionary.rds")
 #'
 #' # Single document
-#' vectionary_analyze(my_vect, "We must protect vulnerable people", metric = "rms")
+#' vectionary_analyze(my_vect, "We must protect vulnerable people", metric = "mse")
 #'
 #' # Multiple documents
 #' texts <- c(
@@ -312,7 +312,7 @@ vectionary_analyze <- function(vect, text, metric = "mean", alpha = NULL) {
     stop("vect must be a Vec-tionary object (built with vectionary_builder or loaded via readRDS)")
   }
 
-  metric <- match.arg(metric, c("mean", "rms", "sd", "se", "top_10", "top_20", "all"))
+  metric <- match.arg(metric, c("mean", "mse", "sd", "se", "top_10", "top_20", "all"))
 
   # Call internal metric functions directly rather than going through the $
   # accessor. This avoids creating a closure on every call. Each .metric()
@@ -323,7 +323,7 @@ vectionary_analyze <- function(vect, text, metric = "mean", alpha = NULL) {
 
   result <- switch(metric,
     mean = .mean(text, wp, dims),
-    rms = .rms(text, wp, dims),
+    mse = .mse(text, wp, dims),
     sd = .sd(text, wp, dims),
     se = .se(text, wp, dims),
     top_10 = .top_10(text, wp, dims),
@@ -380,7 +380,7 @@ vectionary_analyze <- function(vect, text, metric = "mean", alpha = NULL) {
     }
 
     # Append topic elements to the result list.
-    # For metric="all": add $topic as a named list alongside $mean, $rms, etc.
+    # For metric="all": add $topic as a named list alongside $mean, $mse, etc.
     # For single metrics: append topic elements directly.
     if (metric == "all") {
       result$topic <- topic_list
@@ -601,7 +601,7 @@ vectionary_analyze <- function(vect, text, metric = "mean", alpha = NULL) {
 #' Batch-compute a metric across multiple documents
 #'
 #' @description
-#' Computes a single metric (mean, rms, sd, se, top_10, or top_20) for each
+#' Computes a single metric (mean, mse, sd, se, top_10, or top_20) for each
 #' document in a batch. Uses [.tokenize_and_match()] for the shared
 #' tokenize-match-group pipeline, then loops over documents and dimensions
 #' to compute the requested aggregate.
@@ -609,7 +609,7 @@ vectionary_analyze <- function(vect, text, metric = "mean", alpha = NULL) {
 #' @param texts Character vector of documents
 #' @param word_projections Data frame with 'word' column and dimension columns
 #' @param dimensions Character vector of dimension names
-#' @param metric One of "mean", "rms", "sd", "se", "top_10", "top_20"
+#' @param metric One of "mean", "mse", "sd", "se", "top_10", "top_20"
 #'
 #' @return Named list with one element per dimension, each a numeric vector
 #'   of length \code{length(texts)}. Documents with no matched words get NA.
@@ -639,7 +639,7 @@ vectionary_analyze <- function(vect, text, metric = "mean", alpha = NULL) {
       # and return NA when n <= 1 (can't estimate variability from one observation).
       result_mat[doc_i, j] <- switch(metric,
         mean = sum(vals) / n,
-        rms = sqrt(sum(vals^2) / n),
+        mse = sum(vals^2) / n,
         sd = {
           if (n <= 1L) NA_real_
           else {
@@ -679,7 +679,7 @@ vectionary_analyze <- function(vect, text, metric = "mean", alpha = NULL) {
 #' Batch-compute all metrics across multiple documents
 #'
 #' @description
-#' Computes all 6 metrics (mean, rms, sd, se, top_10, top_20) in a single pass
+#' Computes all 6 metrics (mean, mse, sd, se, top_10, top_20) in a single pass
 #' over the tokenized data. More efficient than calling .batch_metric() 6 times
 #' because tokenization and matching happen only once via [.tokenize_and_match()].
 #'
@@ -694,7 +694,7 @@ vectionary_analyze <- function(vect, text, metric = "mean", alpha = NULL) {
 .batch_metrics_all <- function(texts, word_projections, dimensions) {
 
   tm <- .tokenize_and_match(texts, word_projections, dimensions)
-  metric_names <- c("mean", "rms", "sd", "se", "top_10", "top_20")
+  metric_names <- c("mean", "mse", "sd", "se", "top_10", "top_20")
 
   # One pre-allocated NA matrix per metric
   result_mats <- lapply(metric_names, function(m) matrix(NA_real_, nrow = tm$n_docs, ncol = tm$n_dims))
@@ -713,7 +713,7 @@ vectionary_analyze <- function(vect, text, metric = "mean", alpha = NULL) {
       m <- s / n
 
       result_mats$mean[doc_i, j] <- m
-      result_mats$rms[doc_i, j] <- sqrt(sum(vals^2) / n)
+      result_mats$mse[doc_i, j] <- sum(vals^2) / n
 
       # Sample SD and SE (n-1 denominator). NA for n <= 1.
       if (n <= 1L) {
@@ -775,10 +775,10 @@ vectionary_analyze <- function(vect, text, metric = "mean", alpha = NULL) {
 }
 
 
-#' Compute RMS metric (single document or vector)
+#' Compute MSE metric (single document or vector)
 #'
 #' @description
-#' Root Mean Square: sqrt(mean(x^2)). Unlike the arithmetic mean, RMS is
+#' Mean Squared Error: sqrt(mean(x^2)). Unlike the arithmetic mean, MSE is
 #' always non-negative and gives more weight to high-magnitude projections
 #' (both positive and negative). Useful when both positive and negative
 #' projections are meaningful signals.
@@ -788,13 +788,13 @@ vectionary_analyze <- function(vect, text, metric = "mean", alpha = NULL) {
 #' @param dimensions Character vector of dimension names
 #' @return Named list with one element per dimension.
 #' @keywords internal
-.rms <- function(text, word_projections, dimensions) {
+.mse <- function(text, word_projections, dimensions) {
   if (length(text) > 1) {
-    return(.batch_metric(text, word_projections, dimensions, "rms"))
+    return(.batch_metric(text, word_projections, dimensions, "mse"))
   }
   doc_scores <- .get_doc_scores(text, word_projections, dimensions)
   if (nrow(doc_scores) == 0) return(setNames(as.list(rep(NA_real_, length(dimensions))), dimensions))
-  setNames(lapply(dimensions, function(dim) sqrt(mean(doc_scores[[dim]]^2, na.rm = TRUE))), dimensions)
+  setNames(lapply(dimensions, function(dim) mean(doc_scores[[dim]]^2, na.rm = TRUE)), dimensions)
 }
 
 
@@ -924,14 +924,14 @@ vectionary_analyze <- function(vect, text, metric = "mean", alpha = NULL) {
 
   if (nrow(doc_scores) == 0) {
     nas <- setNames(as.list(rep(NA_real_, length(dimensions))), dimensions)
-    return(list(mean = nas, rms = nas, sd = nas, se = nas, top_10 = nas, top_20 = nas))
+    return(list(mean = nas, mse = nas, sd = nas, se = nas, top_10 = nas, top_20 = nas))
   }
 
   make_list <- function(fn) setNames(lapply(dimensions, fn), dimensions)
 
   list(
     mean = make_list(function(dim) mean(doc_scores[[dim]], na.rm = TRUE)),
-    rms = make_list(function(dim) sqrt(mean(doc_scores[[dim]]^2, na.rm = TRUE))),
+    mse = make_list(function(dim) mean(doc_scores[[dim]]^2, na.rm = TRUE)),
     sd = make_list(function(dim) {
       vals <- doc_scores[[dim]]; n <- length(vals)
       if (n <= 1) NA_real_ else sqrt(sum((vals - mean(vals))^2) / (n - 1))

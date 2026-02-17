@@ -127,12 +127,12 @@ test_that(".mean returns NA for no matches", {
   expect_true(all(is.na(unlist(result))))
 })
 
-test_that(".rms computes root mean square", {
+test_that(".mse computes mean squared error", {
   vect <- .create_mock_vectionary()
-  result <- .rms("protect care harm", vect$word_projections, vect$dimensions)
+  result <- .mse("protect care harm", vect$word_projections, vect$dimensions)
 
-  # Manual: sqrt(mean(0.9^2 + 0.8^2 + 0.8^2)) = sqrt(mean(0.81, 0.64, 0.64))
-  expected_care <- sqrt(mean(c(0.9^2, 0.8^2, (-0.8)^2)))
+  # Manual: mean(0.9^2, 0.8^2, 0.8^2) = mean(0.81, 0.64, 0.64)
+  expected_care <- mean(c(0.9^2, 0.8^2, (-0.8)^2))
   expect_equal(result[["care"]], expected_care, tolerance = 1e-10)
 })
 
@@ -188,7 +188,7 @@ test_that(".metrics returns all six metrics", {
 
   expect_type(result, "list")
   expect_equal(length(result), 6)
-  expect_true(all(c("mean", "rms", "sd", "se", "top_10", "top_20") %in% names(result)))
+  expect_true(all(c("mean", "mse", "sd", "se", "top_10", "top_20") %in% names(result)))
 
   # Each element should be a named list
   for (metric_name in names(result)) {
@@ -206,8 +206,8 @@ test_that("$ operator returns callable functions for valid methods", {
   mean_fn <- vect$mean
   expect_true(is.function(mean_fn))
 
-  rms_fn <- vect$rms
-  expect_true(is.function(rms_fn))
+  mse_fn <- vect$mse
+  expect_true(is.function(mse_fn))
 
   sd_fn <- vect$sd
   expect_true(is.function(sd_fn))
@@ -260,7 +260,7 @@ test_that("vectionary_analyze works with direct object", {
 test_that("vectionary_analyze works with all metric options", {
   vect <- .create_mock_vectionary()
 
-  for (metric in c("mean", "rms", "sd", "se", "top_10", "top_20")) {
+  for (metric in c("mean", "mse", "sd", "se", "top_10", "top_20")) {
     result <- vectionary_analyze(vect, "protect care", metric = metric)
     expect_true(is.list(result), info = paste("Failed for metric:", metric))
   }
@@ -320,12 +320,12 @@ test_that("batch mean matches single-document loop", {
   }
 })
 
-test_that("batch rms matches single-document loop", {
+test_that("batch mse matches single-document loop", {
   vect <- .create_mock_vectionary()
   texts <- c("protect care harm", "fair just equal rights")
-  batch_result <- vect$rms(texts)
+  batch_result <- vect$mse(texts)
   for (i in seq_along(texts)) {
-    single <- vect$rms(texts[i])
+    single <- vect$mse(texts[i])
     for (dim in vect$dimensions) {
       expect_equal(batch_result[[dim]][i], single[[dim]], tolerance = 1e-10)
     }

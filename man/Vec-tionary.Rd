@@ -12,7 +12,7 @@ Vectionary objects are created by [vectionary_builder()].
 They provide methods to compute various metrics on text:
 \itemize{
   \item `$mean(text)` - Arithmetic mean of projections
-  \item `$rms(text)` - Root mean square (emphasizes high-magnitude projections)
+  \item `$mse(text)` - Mean squared error (emphasizes high-magnitude projections)
   \item `$sd(text)` - Standard deviation of projections
   \item `$se(text)` - Standard error of the mean
   \item `$top_10(text)` - Mean of 10 highest projections (strongest signals)

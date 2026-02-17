@@ -60,9 +60,9 @@ test_that("$mean() works on legacy vectionary", {
   expect_true(is.numeric(result$care))
 })
 
-test_that("$rms() works on legacy vectionary", {
+test_that("$mse() works on legacy vectionary", {
   vect   <- .create_legacy_vectionary()
-  result <- vect$rms("protect care")
+  result <- vect$mse("protect care")
   expect_named(result, "care")
   expect_true(is.numeric(result$care))
 })
@@ -71,7 +71,7 @@ test_that("$metrics() works on legacy vectionary", {
   vect   <- .create_legacy_vectionary()
   result <- vect$metrics("protect care")
   expect_true(is.list(result))
-  # $metrics() returns list(mean = list(care = ...), rms = ..., ...)
+  # $metrics() returns list(mean = list(care = ...), mse = ..., ...)
   expect_true("mean" %in% names(result))
   expect_true("care" %in% names(result$mean))
 })

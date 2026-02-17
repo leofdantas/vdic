@@ -13,14 +13,14 @@
 
 \item{dimensions}{Character vector of dimension names}
 
-\item{metric}{One of "mean", "rms", "sd", "se", "top_10", "top_20"}
+\item{metric}{One of "mean", "mse", "sd", "se", "top_10", "top_20"}
 }
 \value{
 Named list with one element per dimension, each a numeric vector
   of length \code{length(texts)}. Documents with no matched words get NA.
 }
 \description{
-Computes a single metric (mean, rms, sd, se, top_10, or top_20) for each
+Computes a single metric (mean, mse, sd, se, top_10, or top_20) for each
 document in a batch. Uses [.tokenize_and_match()] for the shared
 tokenize-match-group pipeline, then loops over documents and dimensions
 to compute the requested aggregate.

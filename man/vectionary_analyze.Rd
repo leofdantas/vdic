@@ -15,7 +15,7 @@ via [readRDS()].}
 \item{metric}{Which aggregation metric to calculate (default: "mean"):
 \itemize{
   \item \code{"mean"}: Arithmetic mean of word projections — general-purpose summary
-  \item \code{"rms"}: Root mean square — emphasizes high-magnitude projections
+  \item \code{"mse"}: Root mean square — emphasizes high-magnitude projections
   \item \code{"sd"}: Standard deviation — spread of projections within the document
   \item \code{"se"}: Standard error of the mean — precision of the mean estimate
   \item \code{"top_10"}: Mean of the 10 highest projections — strongest signals only
@@ -49,7 +49,7 @@ matching each topic dimension.
 my_vect <- readRDS("my_vectionary.rds")
 
 # Single document
-vectionary_analyze(my_vect, "We must protect vulnerable people", metric = "rms")
+vectionary_analyze(my_vect, "We must protect vulnerable people", metric = "mse")
 
 # Multiple documents
 texts <- c(

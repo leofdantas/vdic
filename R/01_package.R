@@ -77,7 +77,7 @@
 #'     (2025) methods.}
 #'   \item{[vectionary_analyze()]}{Score one or more documents against a
 #'     vec-tionary. Returns per-dimension scores using a chosen aggregation
-#'     metric (mean, RMS, SD, SE, top-10, top-20, or all). Optionally
+#'     metric (mean, MSE, SD, SE, top-10, top-20, or all). Optionally
 #'     classifies documents via a one-tailed t-test.}
 #'   \item{[vectionary_diagnose()]}{Print a diagnostic report showing the
 #'     top-scoring words per dimension and whether seed words rank near the
@@ -95,7 +95,7 @@
 #'
 #' \describe{
 #'   \item{\code{$mean(text)}}{Arithmetic mean of word projections.}
-#'   \item{\code{$rms(text)}}{Root mean square (emphasizes high-magnitude
+#'   \item{\code{$mse(text)}}{Mean squared error (emphasizes high-magnitude
 #'     projections).}
 #'   \item{\code{$sd(text)}}{Standard deviation of projections within a
 #'     document.}

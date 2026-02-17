@@ -219,8 +219,8 @@ test_that("topic classification uses non-metric scores for t-test", {
   vect <- .create_mock_vectionary()
   texts <- c("protect care help", "harm hurt damage", "fair just equal")
 
-  # When metric = "rms", topic test should still use mean scores
-  result <- vectionary_analyze(vect, texts, metric = "rms", alpha = 0.05)
+  # When metric = "mse", topic test should still use mean scores
+  result <- vectionary_analyze(vect, texts, metric = "mse", alpha = 0.05)
   expect_true("care_topic" %in% names(result))
 })
 

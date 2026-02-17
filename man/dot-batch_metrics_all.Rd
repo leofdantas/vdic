@@ -18,7 +18,7 @@ Named list of 6 named lists (one per metric). Each inner list has
   one element per dimension, each a numeric vector of length \code{length(texts)}.
 }
 \description{
-Computes all 6 metrics (mean, rms, sd, se, top_10, top_20) in a single pass
+Computes all 6 metrics (mean, mse, sd, se, top_10, top_20) in a single pass
 over the tokenized data. More efficient than calling .batch_metric() 6 times
 because tokenization and matching happen only once via [.tokenize_and_match()].
 }

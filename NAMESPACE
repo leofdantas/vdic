@@ -3,6 +3,7 @@
 S3method("$","Vec-tionary")
 S3method(print,"Vec-tionary")
 S3method(summary,"Vec-tionary")
+export(analyze_image)
 export(download_embeddings)
 export(vectionary_analyze)
 export(vectionary_builder)

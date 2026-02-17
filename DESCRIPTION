@@ -1,15 +1,19 @@
 Package: vdic
 Type: Package
-Title: Build and Use Vec-tionaries for Text Analysis
-Version: 1.0.0
+Title: Build and Use Vec-tionaries for Text and Image Analysis
+Version: 1.1.0
 Authors@R: person("Leonardo", "Dantas",
                   email = "lf5453@princeton.edu",
                   role = c("aut", "cre"))
 Description: A flexible framework for building and using vector-based dictionaries
-    (vec-tionaries) for text analysis. Build custom dictionaries from word embeddings
-    by providing seed words with scores on dimensions of interest (e.g., moral foundations,
-    sentiment, emotions). Users download embeddings separately and build lightweight vec-tionaries
-    that can be shared and reused without requiring the original large embedding files.
+    (vec-tionaries) for text and image analysis. Build custom dictionaries from word embeddings
+    (FastText, word2vec, GloVe) or multi-modal embeddings (SigLIP) by providing seed words
+    with scores on dimensions of interest (e.g., moral foundations, sentiment, emotions).
+    Multi-modal vectionaries enable cross-modal analysis: text dictionaries can analyze images
+    in the shared embedding space. Users download embeddings separately and build lightweight
+    vec-tionaries that can be shared and reused without requiring the original large embedding files.
+    Text-based analysis uses R-only code. Image embedding and analysis require Python with the
+    'transformers' library installed and accessible via the 'reticulate' package.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Depends:
@@ -25,5 +29,6 @@ Imports:
 Suggests:
     testthat (>= 3.0.0),
     hunspell,
-    alabama
+    alabama,
+    reticulate (>= 1.30)
 RoxygenNote: 7.3.3

@@ -8,7 +8,8 @@ analyze_image(
   vect,
   images,
   model_name = "google/siglip-so400m-patch14-384",
-  batch_size = 32L
+  batch_size = 32L,
+  alpha = NULL
 )
 }
 \arguments{
@@ -16,7 +17,7 @@ analyze_image(
 [vectionary_builder()] using \code{modality = "multimodal"}.}
 
 \item{images}{Character vector of image file paths to analyze. Accepts JPEG,
-PNG, BMP, and other formats supported by Pillow.}
+PNG, BMP, WebP, and other formats supported by Pillow.}
 
 \item{model_name}{SigLIP model ID on Hugging Face Hub (default:
 \code{"google/siglip-so400m-patch14-384"}). The model is downloaded and
@@ -25,12 +26,22 @@ Must match the model used when building the vectionary.}
 
 \item{batch_size}{Integer. Number of images to encode per batch (default: 32).
 Reduce if you run out of memory; increase for faster processing on GPU.}
+
+\item{alpha}{Significance level for one-tailed topic classification (e.g.
+\code{0.05}). When set, appends logical \code{_topic} columns to the
+result: an image is flagged when its score exceeds
+\eqn{\bar{x} + t_{1-\alpha,\, n-1} \cdot s}, where \eqn{\bar{x}} and
+\eqn{s} are the corpus mean and SD of image scores for that dimension.
+Requires at least 2 images. Default \code{NULL} (no classification).}
 }
 \value{
 Data frame with one row per image and one column per dimension, plus
   an \code{image} column with the original file path. Scores are
   cosine-similarity-based projections — higher values indicate stronger
   semantic alignment with the dimension's dictionary words.
+  When \code{alpha} is set, logical \code{_topic} columns are appended and
+  the data frame carries \code{"threshold"} and \code{"alpha"} attributes
+  with the per-dimension cutoffs.
 }
 \description{
 Scores a set of image files on the semantic dimensions of a multi-modal

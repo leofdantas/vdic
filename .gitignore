@@ -7,7 +7,12 @@
 .DS_Store
 
 # objects
+vdic_data
 vectionary.rds
+tests/images
+
+# testing
+tests/test_multimodal.R
 
 # Claude
 CLAUDE.md

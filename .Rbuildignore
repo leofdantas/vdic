@@ -1,6 +1,8 @@
 ^tests/vdic-builder\.R$
 ^tests/test_phase2_siglip\.R$
+^tests/imagesR$
 ^vdic_logo\.png$
 ^LICENSE\.md$
 ^vectionary\.rds$
 vdic_data
+^vectionary_multimodal\.rds$

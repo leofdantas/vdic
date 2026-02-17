@@ -256,18 +256,27 @@
 #' @param vect A Vec-tionary object with \code{modality = "multimodal"}, built with
 #'   [vectionary_builder()] using \code{modality = "multimodal"}.
 #' @param images Character vector of image file paths to analyze. Accepts JPEG,
-#'   PNG, BMP, and other formats supported by Pillow.
+#'   PNG, BMP, WebP, and other formats supported by Pillow.
 #' @param model_name SigLIP model ID on Hugging Face Hub (default:
 #'   \code{"google/siglip-so400m-patch14-384"}). The model is downloaded and
 #'   cached by the \code{transformers} library on first use (approximately 800 MB).
 #'   Must match the model used when building the vectionary.
 #' @param batch_size Integer. Number of images to encode per batch (default: 32).
 #'   Reduce if you run out of memory; increase for faster processing on GPU.
+#' @param alpha Significance level for one-tailed topic classification (e.g.
+#'   \code{0.05}). When set, appends logical \code{_topic} columns to the
+#'   result: an image is flagged when its score exceeds
+#'   \eqn{\bar{x} + t_{1-\alpha,\, n-1} \cdot s}, where \eqn{\bar{x}} and
+#'   \eqn{s} are the corpus mean and SD of image scores for that dimension.
+#'   Requires at least 2 images. Default \code{NULL} (no classification).
 #'
 #' @return Data frame with one row per image and one column per dimension, plus
 #'   an \code{image} column with the original file path. Scores are
 #'   cosine-similarity-based projections — higher values indicate stronger
 #'   semantic alignment with the dimension's dictionary words.
+#'   When \code{alpha} is set, logical \code{_topic} columns are appended and
+#'   the data frame carries \code{"threshold"} and \code{"alpha"} attributes
+#'   with the per-dimension cutoffs.
 #'
 #' @examples
 #' \dontrun{
@@ -298,7 +307,8 @@ analyze_image <- function(
   vect,
   images,
   model_name = "google/siglip-so400m-patch14-384",
-  batch_size = 32L
+  batch_size = 32L,
+  alpha      = NULL
 ) {
 
   if (!inherits(vect, "Vec-tionary")) {
@@ -317,6 +327,17 @@ analyze_image <- function(
 
   if (length(images) == 0L) stop("images must be a non-empty character vector")
 
+  #-- Validate alpha ----
+  if (!is.null(alpha)) {
+    if (!is.numeric(alpha) || length(alpha) != 1L || alpha <= 0 || alpha >= 1) {
+      stop("alpha must be a single number in (0, 1)")
+    }
+    if (length(images) < 2L) {
+      warning("alpha ignored: topic classification requires at least 2 images")
+      alpha <- NULL
+    }
+  }
+
   #-- Check dependencies ----
   .check_siglip_deps()
 
@@ -332,15 +353,41 @@ analyze_image <- function(
 
   #-- Project onto learned axes ----
   # Each axis is a 1152-dim vector; dot product with image embedding = score
-  scores <- lapply(vect$dimensions, function(dim) {
-    as.numeric(emb_matrix %*% vect$axes[[dim]])
-  })
-  names(scores) <- vect$dimensions
+  dims   <- vect$dimensions
+  scores <- lapply(dims, function(dim) as.numeric(emb_matrix %*% vect$axes[[dim]]))
+  names(scores) <- dims
 
-  #-- Return data frame ----
+  #-- Build result data frame ----
   result        <- as.data.frame(scores)
   result$image  <- images
-  result[c("image", vect$dimensions)]
+  col_order     <- c("image", dims)
+
+  #-- Topic classification (one-tailed t-test) ----
+  if (!is.null(alpha)) {
+    thresholds <- setNames(numeric(length(dims)), dims)
+
+    for (dim in dims) {
+      vals    <- scores[[dim]]
+      n_valid <- sum(!is.na(vals))
+
+      if (n_valid < 2L) {
+        thresholds[[dim]]                  <- NA_real_
+        result[[paste0(dim, "_topic")]]    <- rep(FALSE, length(vals))
+      } else {
+        mu               <- mean(vals, na.rm = TRUE)
+        sigma            <- stats::sd(vals, na.rm = TRUE)
+        t_crit           <- stats::qt(1 - alpha, df = n_valid - 1L)
+        thresholds[[dim]]                  <- mu + t_crit * sigma
+        result[[paste0(dim, "_topic")]]    <- !is.na(vals) & vals > thresholds[[dim]]
+      }
+    }
+
+    attr(result, "threshold") <- thresholds
+    attr(result, "alpha")     <- alpha
+    col_order <- c(col_order, paste0(dims, "_topic"))
+  }
+
+  result[col_order]
 }
 
 

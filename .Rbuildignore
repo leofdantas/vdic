@@ -2,3 +2,4 @@
 ^tests/test_phase2_siglip\.R$
 ^vdic_logo\.png$
 ^LICENSE\.md$
+^vectionary\.rds$

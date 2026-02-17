@@ -39,7 +39,7 @@ word2vec .bin format, or GloVe .txt format.}
 \itemize{
   \item "text": Use traditional word embeddings (FastText, word2vec, GloVe)
   \item "multimodal": Use SigLIP multi-modal embeddings. Dictionary words are
-    encoded in the shared text-image embedding space (512-dim), creating axes
+    encoded in the shared text-image embedding space (1152-dim), creating axes
     that can analyze both text and images. Requires embeddings parameter to be
     "siglip" or a path to pre-computed SigLIP embeddings.
 }}
@@ -82,11 +82,11 @@ more zero coefficients. Ignored for method="ridge" or "lasso".}
   \item Numeric vector (e.g., c(0.01, 0.1, 1)): Test these values and select optimal
 }
 Higher lambda creates more regularized axes. When multiple values are provided,
-the optimal lambda is selected based on validity (R² or AUC) and axis differentiation.}
+the optimal lambda is selected based on validity (R-squared or AUC) and axis differentiation.}
 
 \item{min_validity}{Minimum validity threshold (default: 0.75 = 75%).
 Only used when lambda is a numeric vector (ignored for "gcv").
-For continuous dictionaries: R² between scores and projections.
+For continuous dictionaries: R-squared between scores and projections.
 For binary dictionaries: AUC (0.5 = random, 1.0 = perfect separation).
 Lambda candidates below this threshold are rejected unless none pass.}
 

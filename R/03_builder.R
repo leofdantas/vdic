@@ -1,25 +1,25 @@
-# ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  03_builder.R — Vec-tionary Construction Engine                            ║
-# ║                                                                            ║
-# ║  This file implements the core pipeline for building vec-tionaries:        ║
-# ║    1. Filter embedding vocabulary (spellcheck, stopwords, non-alphabetic)  ║
-# ║    2. Expand stem patterns (e.g., "abandon*" → all inflections)            ║
-# ║    3. Select regularization parameter lambda (GCV, CV, or grid search)     ║
-# ║    4. Learn semantic axes via regression (ridge / elastic net / Duan)      ║
-# ║    5. Optionally expand dictionary with high-projection words              ║
-# ║    6. Project full embedding vocabulary onto learned axes                  ║
-# ║    7. Package into S3 "Vec-tionary" object and save                        ║
-# ║                                                                            ║
-# ║  Mathematical core:                                                        ║
-# ║    Ridge:       $a = (W^T W + \lambda I)^{-1} W^T y$                      ║
-# ║    Elastic net: glmnet with L1+L2 penalty                                 ║
-# ║    LASSO:       glmnet with L1 penalty (l1_ratio = 1)                     ║
-# ║    Duan (2025): $\min ||Wm - y||^2$ s.t. $||m|| = 1$                      ║
-# ║                                                                            ║
-# ║  All word embeddings are unit-normalized before axis learning so that      ║
-# ║  projections are cosine-similarity-based rather than magnitude-biased.     ║
-# ║  Axes are NOT unit-normalized — their scale encodes dictionary scores.     ║
-# ╚══════════════════════════════════════════════════════════════════════════════╝
+# ==============================================================================
+#  03_builder.R — Vec-tionary Construction Engine                            
+#                                                                             
+#   This file implements the core pipeline for building vec-tionaries:        
+#     1. Filter embedding vocabulary (spellcheck, stopwords, non-alphabetic)  
+#     2. Expand stem patterns (e.g., "abandon*" → all inflections)            
+#     3. Select regularization parameter lambda (GCV, CV, or grid search)     
+#     4. Learn semantic axes via regression (ridge / elastic net / Duan)      
+#     5. Optionally expand dictionary with high-projection words              
+#     6. Project full embedding vocabulary onto learned axes                  
+#     7. Package into S3 "Vec-tionary" object and save                        
+#                                                                             
+#   Mathematical core:                                                        
+#     Ridge:       $a = (W^T W + \lambda I)^{-1} W^T y$                      
+#     Elastic net: glmnet with L1+L2 penalty                                 
+#     LASSO:       glmnet with L1 penalty (l1_ratio = 1)                     
+#     Duan (2025): $\min ||Wm - y||^2$ s.t. $||m|| = 1$                      
+#                                                                             
+#   All word embeddings are unit-normalized before axis learning so that      
+#   projections are cosine-similarity-based rather than magnitude-biased.     
+#   Axes are NOT unit-normalized — their scale encodes dictionary scores.     
+# ==============================================================================
 
 #' Build a vec-tionary from dictionary and embeddings
 #'
@@ -42,7 +42,7 @@
 #'   \itemize{
 #'     \item "text": Use traditional word embeddings (FastText, word2vec, GloVe)
 #'     \item "multimodal": Use SigLIP multi-modal embeddings. Dictionary words are
-#'       encoded in the shared text-image embedding space (512-dim), creating axes
+#'       encoded in the shared text-image embedding space (1152-dim), creating axes
 #'       that can analyze both text and images. Requires embeddings parameter to be
 #'       "siglip" or a path to pre-computed SigLIP embeddings.
 #'   }
@@ -79,10 +79,10 @@
 #'     \item Numeric vector (e.g., c(0.01, 0.1, 1)): Test these values and select optimal
 #'   }
 #'   Higher lambda creates more regularized axes. When multiple values are provided,
-#'   the optimal lambda is selected based on validity (R² or AUC) and axis differentiation.
+#'   the optimal lambda is selected based on validity (R-squared or AUC) and axis differentiation.
 #' @param min_validity Minimum validity threshold (default: 0.75 = 75%).
 #'   Only used when lambda is a numeric vector (ignored for "gcv").
-#'   For continuous dictionaries: R² between scores and projections.
+#'   For continuous dictionaries: R-squared between scores and projections.
 #'   For binary dictionaries: AUC (0.5 = random, 1.0 = perfect separation).
 #'   Lambda candidates below this threshold are rejected unless none pass.
 #' @param expand_vocab Integer or NULL (default). If set, expands the training
@@ -447,7 +447,7 @@ vectionary_builder <- function(
 
     if (all_same) {
       stop(
-        "All dimensions have identical score patterns — axes would be indistinguishable.\n",
+        "All dimensions have identical score patterns - axes would be indistinguishable.\n",
         if (binary_word) {
           paste0(
             "binary_word = TRUE converted all nonzero values to 1, collapsing dimensions.\n",
@@ -743,7 +743,7 @@ vectionary_builder <- function(
       image_projections = NULL,  # Only populated for multimodal vectionaries
       dimensions = dimensions,
       modality = "text",
-      embedding_dim = length(result$axes[[1]]),  # Auto-detect from axes (300 for word2vec, 512 for SigLIP)
+      embedding_dim = length(result$axes[[1]]),  # Auto-detect from axes (300 for word2vec, 1152 for SigLIP)
       metadata = list(
         method = method,
         l1_ratio = if (method == "elastic_net") l1_ratio else if (method == "lasso") 1.0 else NULL,
@@ -2480,7 +2480,7 @@ vectionary_builder <- function(
 #'
 #' @description
 #' Evaluates a vectionary built with a specific lambda by checking:
-#' 1. Validity: R² between normalized dictionary scores and projections
+#' 1. Validity: R-squared between normalized dictionary scores and projections
 #' 2. Differentiation: Average correlation between axes (lower = better)
 #'
 #' @param vect A built vectionary object
@@ -2489,7 +2489,7 @@ vectionary_builder <- function(
 #' @param embeddings_path Path to embeddings file (needed for AUC with binary dicts)
 #' @param seed Integer seed for reproducibility (passed to random vector sampling)
 #'
-#' @return List with validity (R² or AUC), differentiation metrics
+#' @return List with validity (R-squared or AUC), differentiation metrics
 #'
 #' @keywords internal
 .validate_lambda <- function(vect, dictionary, dimensions, embeddings_path = NULL, seed) {
@@ -2498,7 +2498,7 @@ vectionary_builder <- function(
   # Binary dictionaries (scores are all 0 or 1): use AUC via Mann-Whitney U
   #   - Measures separation between dictionary words and random background words
   #   - 0.5 = random, 1.0 = perfect separation
-  # Continuous dictionaries (graded scores): use R² (correlation squared)
+  # Continuous dictionaries (graded scores): use R-squared (correlation squared)
   #   - Measures agreement between min-max normalized scores and projections
   first_dim <- dimensions[1]
   dict_scores_check <- dictionary[[first_dim]][!is.na(dictionary[[first_dim]])]
@@ -2533,13 +2533,13 @@ vectionary_builder <- function(
     dim_is_binary <- all(dict_scores %in% c(0, 1))
 
     if (!dim_is_binary) {
-      # Continuous dictionary: R² between min-max normalized scores and projections.
+      # Continuous dictionary: R-squared between min-max normalized scores and projections.
       # Min-max normalization ensures both are on [0,1] before comparing.
       proj_scores <- vect$word_projections[match(common_words, tolower(vect$word_projections$word)), dim]
 
       # If all scores are identical (constant), correlation is undefined → return NA
       if (length(unique(dict_scores)) == 1 || length(unique(proj_scores)) == 1) {
-        cli_alert_warning("Dimension '{dim}': constant scores, R² undefined (returning NA)")
+        cli_alert_warning("Dimension '{dim}': constant scores, R-squared undefined (returning NA)")
         return(NA_real_)
       }
 
@@ -2664,7 +2664,7 @@ vectionary_builder <- function(
     }
   }
 
-  # Detect if using AUC (binary dict) or R² (continuous dict)
+  # Detect if using AUC (binary dict) or R-squared (continuous dict)
   # Binary = all non-NA scores are 0 or 1 (covers both word-list dicts with all 1s
 
   # and data-frame dicts with explicit 0s and 1s after binary_word conversion)
@@ -2678,8 +2678,8 @@ vectionary_builder <- function(
       cli_alert_info("Validity metric: AUC (binary dictionary detected)")
       cli_alert_info("Minimum AUC required: {round(min_validity * 100, 1)}% (50% = random)")
     } else {
-      cli_alert_info("Validity metric: R² (continuous dictionary)")
-      cli_alert_info("Minimum R² required: {round(min_validity * 100, 1)}%")
+      cli_alert_info("Validity metric: R-squared (continuous dictionary)")
+      cli_alert_info("Minimum R-squared required: {round(min_validity * 100, 1)}%")
     }
     cli_text("")
   }
@@ -2723,7 +2723,7 @@ vectionary_builder <- function(
 
     if (verbose) {
       cli_progress_done()
-      metric_label <- if (validation$validity_metric == "auc") "AUC" else "R²"
+      metric_label <- if (validation$validity_metric == "auc") "AUC" else "R-squared"
       if (is.na(validation$differentiation)) {
         cli_alert_info("  {metric_label}: {round(validation$validity * 100, 1)}%")
       } else {
@@ -2771,7 +2771,7 @@ vectionary_builder <- function(
   }
 
   if (verbose) {
-    metric_label <- if (best_result$validity_metric == "auc") "AUC" else "R²"
+    metric_label <- if (best_result$validity_metric == "auc") "AUC" else "R-squared"
     cli_alert_success("Selected lambda = {best_result$lambda}")
     cli_alert_info("  {metric_label}: {round(best_result$validity * 100, 1)}%")
     if (!is.na(best_result$differentiation)) {

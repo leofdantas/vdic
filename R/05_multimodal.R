@@ -6,16 +6,16 @@
 #
 # Pipeline for .build_multimodal_axes():
 #   1. Check Python/reticulate dependencies (.check_siglip_deps)
-#   2. Encode dictionary words with SigLIP text encoder -> n x 512 matrix
+#   2. Encode dictionary words with SigLIP text encoder -> n x 1152 matrix
 #   3. Select lambda via GCV using .gcv_select_lambda(W, y) directly (no file)
 #   4. Learn axes with the same solvers as the text pipeline:
 #        .solve_axis_ridge(), .solve_axis_elastic_net(), .solve_axis_duan()
-#   5. Package into Vec-tionary S3 object (modality = "multimodal", embedding_dim = 512)
+#   5. Package into Vec-tionary S3 object (modality = "multimodal", embedding_dim = 1152)
 #      word_projections = NULL (no fixed vocabulary in SigLIP)
 #
 # Pipeline for analyze_image():
 #   1. Check Python/reticulate dependencies
-#   2. Encode images with SigLIP image encoder -> n x 512 matrix
+#   2. Encode images with SigLIP image encoder -> n x 1152 matrix
 #   3. Project each row onto vect$axes via matrix-vector multiplication
 #   4. Return data frame: image path + one column per dimension
 #
@@ -102,7 +102,7 @@
   t_step <- Sys.time()
 
   words        <- unique(dictionary$word)
-  emb_matrix   <- .encode_text_siglip(words, model = mm)  # n_words x 512
+  emb_matrix   <- .encode_text_siglip(words, model = mm)  # n_words x 1152
 
   if (verbose) {
     t_elapsed <- round(as.numeric(difftime(Sys.time(), t_step, units = "secs")), 1)
@@ -191,7 +191,7 @@
       image_projections = NULL,          # populated by analyze_image() at analysis time
       dimensions        = dimensions,
       modality          = "multimodal",
-      embedding_dim     = 512L,
+      embedding_dim     = ncol(emb_matrix),
       metadata          = list(
         method          = method,
         l1_ratio        = if (method == "elastic_net") l1_ratio else if (method == "lasso") 1.0 else NULL,
@@ -235,13 +235,13 @@
 #'
 #' @description
 #' Scores a set of image files on the semantic dimensions of a multi-modal
-#' vectionary. Each image is encoded to a 512-dimensional SigLIP vector and
+#' vectionary. Each image is encoded to a 1152-dimensional SigLIP vector and
 #' projected onto the vectionary's learned axes.
 #'
 #' The vectionary must have been built with \code{modality = "multimodal"} in
 #' [vectionary_builder()], meaning its axes were learned from dictionary words
 #' encoded via SigLIP's text encoder. Because SigLIP maps both text and images
-#' into the same 512-dimensional space, images can be scored by those same axes
+#' into the same 1152-dimensional space, images can be scored by those same axes
 #' — no labeled image training data required.
 #'
 #' **Python required:** Encoding images requires Python with the \code{transformers},
@@ -250,7 +250,7 @@
 #' \preformatted{
 #' install.packages("reticulate")
 #' reticulate::install_miniconda()   # skip if Python is already configured
-#' reticulate::py_install(c("transformers", "torch", "Pillow"))
+#' reticulate::py_install(c("transformers", "torch", "Pillow", "sentencepiece"))
 #' }
 #'
 #' @param vect A Vec-tionary object with \code{modality = "multimodal"}, built with
@@ -328,10 +328,10 @@ analyze_image <- function(
     image_paths = images,
     model       = mm,
     batch_size  = batch_size
-  )  # n_images x 512
+  )  # n_images x 1152
 
   #-- Project onto learned axes ----
-  # Each axis is a 512-dim vector; dot product with image embedding = score
+  # Each axis is a 1152-dim vector; dot product with image embedding = score
   scores <- lapply(vect$dimensions, function(dim) {
     as.numeric(emb_matrix %*% vect$axes[[dim]])
   })
@@ -341,4 +341,115 @@ analyze_image <- function(
   result        <- as.data.frame(scores)
   result$image  <- images
   result[c("image", vect$dimensions)]
+}
+
+
+#- Analyze Text with a Vec-tionary ----
+
+#' Analyze Text with a Vec-tionary
+#'
+#' @description
+#' Scores a character vector of texts on the semantic dimensions of a
+#' vec-tionary. Returns a data frame with one row per text and one column per
+#' dimension — the same structure as [analyze_image()].
+#'
+#' Two analysis paths are supported depending on the vec-tionary's modality:
+#'
+#' \describe{
+#'   \item{Text vectionary (\code{modality = "text"} or legacy)}{
+#'     Each text is tokenized, tokens are looked up in the pre-computed
+#'     \code{word_projections} table, and the mean projection score is returned.
+#'     This path requires no Python and works offline.}
+#'   \item{Multi-modal vectionary (\code{modality = "multimodal"})}{
+#'     Each text is encoded to a 1152-dimensional SigLIP vector via the text
+#'     encoder and projected onto the vectionary axes — the same axes used by
+#'     [analyze_image()]. This enables direct comparison of text and image
+#'     scores on the same scale. Requires Python with \code{transformers},
+#'     \code{torch}, \code{Pillow}, and \code{sentencepiece} via
+#'     \code{reticulate}.}
+#' }
+#'
+#' For richer text analysis (multiple metrics, topic classification) use
+#' [vectionary_analyze()] with a text vectionary.
+#'
+#' @param vect A Vec-tionary object built with [vectionary_builder()].
+#' @param text Character vector of texts to analyze. Each element is treated as
+#'   one document.
+#' @param model_name SigLIP model ID on Hugging Face Hub (default:
+#'   \code{"google/siglip-so400m-patch14-384"}). Only used for multimodal
+#'   vectionaries. Must match the model used when building the vectionary.
+#' @param batch_size Integer. Number of texts to encode per batch (default:
+#'   64L). Only used for multimodal vectionaries.
+#'
+#' @return Data frame with one row per text and one column per dimension, plus
+#'   a \code{text} column containing the original input strings.
+#'
+#' @seealso [vectionary_analyze()] for multi-metric text analysis with topic
+#'   classification; [analyze_image()] for image analysis.
+#'
+#' @examples
+#' \dontrun{
+#' # ---- Text vectionary (no Python needed) ----
+#' vect <- readRDS("my_vectionary.rds")
+#' result <- analyze_text(vect, c("We must protect the vulnerable",
+#'                                "Violence erupted in the streets"))
+#' result
+#' #>                             text  care  harm
+#' #> 1  We must protect the vulnerab... 0.623 0.112
+#' #> 2  Violence erupted in the stre... 0.089 0.741
+#'
+#' # ---- Multi-modal vectionary (Python required) ----
+#' mm_vect <- vectionary_builder(dictionary, embeddings = "siglip",
+#'                               modality = "multimodal")
+#' result <- analyze_text(mm_vect, c("a caring nurse", "an act of violence"))
+#' }
+#'
+#' @export
+analyze_text <- function(
+  vect,
+  text,
+  model_name = "google/siglip-so400m-patch14-384",
+  batch_size = 64L
+) {
+
+  if (!inherits(vect, "Vec-tionary")) {
+    stop("vect must be a Vec-tionary object")
+  }
+
+  if (!is.character(text) || length(text) == 0L) {
+    stop("text must be a non-empty character vector")
+  }
+
+  modality <- vect[["modality"]] %||% "text"
+
+  if (modality == "multimodal") {
+
+    #-- Multimodal path: encode text via SigLIP then project ----
+    .check_siglip_deps()
+
+    mm         <- .load_siglip_model(model_name)
+    emb_matrix <- .encode_text_siglip(text, model = mm, batch_size = batch_size)
+
+    scores <- lapply(vect$dimensions, function(dim) {
+      as.numeric(emb_matrix %*% vect$axes[[dim]])
+    })
+    names(scores) <- vect$dimensions
+
+  } else {
+
+    #-- Text path: word-lookup projection (mean score per document) ----
+    if (is.null(vect$word_projections)) {
+      stop(
+        "This text vectionary has no word_projections table.\n",
+        "Build it with vectionary_builder() using a word embeddings file."
+      )
+    }
+
+    scores <- .batch_metric(text, vect$word_projections, vect$dimensions, "mean")
+  }
+
+  #-- Return data frame ----
+  result       <- as.data.frame(scores)
+  result$text  <- text
+  result[c("text", vect$dimensions)]
 }

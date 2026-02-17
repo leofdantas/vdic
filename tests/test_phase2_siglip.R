@@ -1,3 +1,5 @@
+source("tests/vdic-builder.R")
+
 #- Phase 2 Integration Test: SigLIP Multi-Modal Vectionary ----
 #
 # Run this script from the package root:
@@ -5,7 +7,7 @@
 #
 # Requirements:
 #   install.packages("reticulate")
-#   reticulate::py_install(c("transformers", "torch", "Pillow"))
+#   reticulate::py_install(c("transformers", "torch", "Pillow", "sentencepiece"))
 #
 # The script will print PASS / FAIL for each test and a final summary.
 # Copy the full output and report any FAILs.
@@ -81,11 +83,12 @@ run_test("Model cache works (second call is instant)", {
 
 section("3. Text encoding (.encode_text_siglip)")
 
-run_test("Encode 5 words -> matrix (5 x 512)", {
+run_test("Encode 5 words -> matrix (5 x 1152)", {
   words <- c("protect", "care", "harm", "hurt", "justice")
   emb <<- vdic:::.encode_text_siglip(words, model = mm)
   if (!is.matrix(emb))          stop("not a matrix")
-  if (!identical(dim(emb), c(5L, 512L))) stop(sprintf("dim is %s, expected 5 x 512", paste(dim(emb), collapse = " x ")))
+  if (nrow(emb) != 5L)          stop(sprintf("nrow is %d, expected 5", nrow(emb)))
+  if (ncol(emb) != 1152L)       stop(sprintf("ncol is %d, expected 1152", ncol(emb)))
   if (!identical(rownames(emb), words))  stop("rownames not set to words")
 })
 
@@ -97,20 +100,15 @@ run_test("Embeddings are unit-normalized (L2 norm ~= 1)", {
 run_test("Encode batch > batch_size (batching logic)", {
   words70 <- paste0("word", seq_len(70))
   emb70 <- vdic:::.encode_text_siglip(words70, model = mm, batch_size = 32L)
-  if (!identical(dim(emb70), c(70L, 512L))) stop(sprintf("dim is %s", paste(dim(emb70), collapse = " x ")))
+  if (nrow(emb70) != 70L)   stop(sprintf("nrow is %d, expected 70", nrow(emb70)))
+  if (ncol(emb70) != 1152L) stop(sprintf("ncol is %d, expected 1152", ncol(emb70)))
 })
 
 
 #-- Section 4: Build multimodal vectionary ----
 
 section("4. Build multimodal vectionary")
-
-dict <- data.frame(
-  word = c("protect", "care", "help", "nurture", "harm", "hurt", "damage", "violence"),
-  care = c(1, 1, 1, 1, 0, 0, 0, 0),
-  harm = c(0, 0, 0, 0, 1, 1, 1, 1),
-  stringsAsFactors = FALSE
-)
+dict <- c("mudança", "mudanças", "clima","climático", "climatológico","aquecimento", "globo","global", "crise", "ambiente", "carbono", "temperatura", "atmosfera", "emissões", "gases", "sustentabilidade", "renovável", "fósseis", "descarbonização", "estufa",  "ambiental", "antropogênico", "antropogênica")
 
 run_test("vectionary_builder(modality='multimodal') returns Vec-tionary", {
   vect <<- vectionary_builder(
@@ -118,7 +116,7 @@ run_test("vectionary_builder(modality='multimodal') returns Vec-tionary", {
     embeddings = "siglip",
     modality   = "multimodal",
     save_path  = NULL,
-    verbose    = FALSE
+    verbose    = TRUE
   )
   if (!inherits(vect, "Vec-tionary")) stop("not a Vec-tionary")
 })
@@ -127,15 +125,15 @@ run_test("modality field is 'multimodal'", {
   if (vect[["modality"]] != "multimodal") stop(sprintf("modality is '%s'", vect[["modality"]]))
 })
 
-run_test("embedding_dim is 512", {
-  if (vect[["embedding_dim"]] != 512L) stop(sprintf("embedding_dim is %s", vect[["embedding_dim"]]))
+run_test("embedding_dim is 1152", {
+  if (vect[["embedding_dim"]] != 1152L) stop(sprintf("embedding_dim is %s", vect[["embedding_dim"]]))
 })
 
-run_test("axes are 512-dim vectors", {
+run_test("axes are 1152-dim vectors", {
   for (dim in vect$dimensions) {
     ax <- vect$axes[[dim]]
-    if (length(ax) != 512L) stop(sprintf("axis '%s' has length %d", dim, length(ax)))
-    if (!is.numeric(ax))    stop(sprintf("axis '%s' is not numeric", dim))
+    if (length(ax) != 1152L) stop(sprintf("axis '%s' has length %d", dim, length(ax)))
+    if (!is.numeric(ax))     stop(sprintf("axis '%s' is not numeric", dim))
   }
 })
 
@@ -143,8 +141,8 @@ run_test("word_projections is NULL", {
   if (!is.null(vect$word_projections)) stop("word_projections should be NULL for multimodal")
 })
 
-run_test("dimensions are c('care', 'harm')", {
-  if (!identical(vect$dimensions, c("care", "harm"))) {
+run_test("single dimension: score", {
+  if (!identical(vect$dimensions, "score")) {
     stop(sprintf("dimensions: %s", paste(vect$dimensions, collapse = ", ")))
   }
 })
@@ -157,7 +155,7 @@ run_test("metadata contains model_name", {
 run_test("print() works on multimodal vectionary", {
   out <- capture.output(print(vect))
   if (!any(grepl("multimodal", out))) stop("'multimodal' not in print output")
-  if (!any(grepl("512",        out))) stop("'512' not in print output")
+  if (!any(grepl("1152",       out))) stop("'1152' not in print output")
 })
 
 run_test("save/load round-trip preserves axes", {
@@ -177,16 +175,20 @@ run_test("save/load round-trip preserves axes", {
 
 section("5. Image encoding (.encode_images_siglip)")
 
-# Create three small temporary PNG test images using R's built-in png()
+# Create three temporary PNG test images using R's built-in png()
 img_files <- replicate(3, tempfile(fileext = ".png"))
 for (f in img_files) {
-  png(f, width = 64, height = 64); plot(1:5, col = sample(1:6, 5)); dev.off()
+  png(f, width = 200, height = 200)
+  par(mar = c(2, 2, 1, 1))
+  plot(1:5, col = sample(1:6, 5))
+  dev.off()
 }
 
-run_test("Encode 3 images -> matrix (3 x 512)", {
+run_test("Encode 3 images -> matrix (3 x 1152)", {
   emb_img <<- vdic:::.encode_images_siglip(img_files, model = mm)
   if (!is.matrix(emb_img))                       stop("not a matrix")
-  if (!identical(dim(emb_img), c(3L, 512L)))     stop(sprintf("dim is %s", paste(dim(emb_img), collapse = " x ")))
+  if (nrow(emb_img) != 3L)                       stop(sprintf("nrow is %d, expected 3", nrow(emb_img)))
+  if (ncol(emb_img) != 1152L)                    stop(sprintf("ncol is %d, expected 1152", ncol(emb_img)))
   if (!identical(rownames(emb_img), img_files))  stop("rownames not set to image paths")
 })
 
@@ -213,8 +215,7 @@ run_test("Returns data frame with correct dimensions", {
   if (!is.data.frame(result))             stop("not a data frame")
   if (nrow(result) != 3L)                 stop(sprintf("nrow is %d, expected 3", nrow(result)))
   if (!"image" %in% names(result))        stop("no 'image' column")
-  if (!"care"  %in% names(result))        stop("no 'care' column")
-  if (!"harm"  %in% names(result))        stop("no 'harm' column")
+  if (!"score"  %in% names(result))        stop("no 'score' column")
 })
 
 run_test("image column contains original paths", {
@@ -222,12 +223,11 @@ run_test("image column contains original paths", {
 })
 
 run_test("Scores are finite numerics", {
-  for (dim in c("care", "harm")) {
+  for (dim in c("score")) {
     if (!is.numeric(result[[dim]]))    stop(sprintf("'%s' is not numeric", dim))
     if (any(!is.finite(result[[dim]]))) stop(sprintf("'%s' contains non-finite values", dim))
   }
-  cat(sprintf("         care: [%.3f, %.3f, %.3f]\n", result$care[1], result$care[2], result$care[3]))
-  cat(sprintf("         harm: [%.3f, %.3f, %.3f]\n", result$harm[1], result$harm[2], result$harm[3]))
+  cat(sprintf("         score: [%.3f, %.3f, %.3f]\n", result$care[1], result$care[2], result$care[3]))
 })
 
 run_test("analyze_image() rejects text vectionary", {

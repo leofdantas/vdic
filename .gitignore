@@ -1,0 +1,15 @@
+# R artifacts
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+.DS_Store
+
+# Claude
+CLAUDE.md
+.claude
+
+# Others
+inst/doc
+vdic_logo.pptx

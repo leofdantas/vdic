@@ -18,11 +18,11 @@
 \item{seed}{Integer seed for reproducibility (passed to random vector sampling)}
 }
 \value{
-List with validity (R² or AUC), differentiation metrics
+List with validity (R-squared or AUC), differentiation metrics
 }
 \description{
 Evaluates a vectionary built with a specific lambda by checking:
-1. Validity: R² between normalized dictionary scores and projections
+1. Validity: R-squared between normalized dictionary scores and projections
 2. Differentiation: Average correlation between axes (lower = better)
 }
 \keyword{internal}

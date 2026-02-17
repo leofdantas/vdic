@@ -29,12 +29,12 @@ projections are cosine-similarity-based.}
 Larger batches are faster but use more memory.}
 }
 \value{
-Numeric matrix of shape \eqn{n \times 512}. Row names are
+Numeric matrix of shape \eqn{n \times 1152}. Row names are
   set to \code{text_strings}.
 }
 \description{
 Encodes a character vector of text strings (typically dictionary words or
-short phrases) into 512-dimensional vectors using the SigLIP text encoder.
+short phrases) into 1152-dimensional vectors using the SigLIP text encoder.
 The resulting vectors live in the shared text-image embedding space, which
 means they can be used to build axes that score images.
 

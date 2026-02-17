@@ -9,7 +9,7 @@
 #' Text-based analysis uses R-only code and traditional word embeddings
 #' (FastText, word2vec, GloVe). Image analysis uses SigLIP multi-modal
 #' embeddings (\code{google/siglip-so400m-patch14-384}), which map both text
-#' and images into the same 512-dimensional space — allowing text dictionaries
+#' and images into the same 1152-dimensional space — allowing text dictionaries
 #' to score image content directly. Image support requires Python with the
 #' \code{transformers}, \code{torch}, and \code{Pillow} libraries installed and
 #' accessible via the \code{reticulate} package.
@@ -179,8 +179,8 @@
 #'   \item \code{reticulate} (>= 1.30): Required for \code{modality =
 #'     "multimodal"} in [vectionary_builder()] and for [analyze_image()].
 #'     Also requires a Python environment with \code{transformers},
-#'     \code{torch}, and \code{Pillow}. Set up once with:
-#'     \code{reticulate::py_install(c("transformers", "torch", "Pillow"))}.
+#'     \code{torch}, \code{Pillow}, and \code{sentencepiece}. Set up once with:
+#'     \code{reticulate::py_install(c("transformers", "torch", "Pillow", "sentencepiece"))}.
 #'     Text-based analysis does not require Python or \code{reticulate}.
 #' }
 #'
@@ -206,6 +206,8 @@
 #' @author Leonardo Dantas
 #'
 #' @import cli
+#' @importFrom stats coef cor median rnorm setNames
+#' @importFrom utils download.file head unzip
 #' @keywords internal
 "_PACKAGE"
 

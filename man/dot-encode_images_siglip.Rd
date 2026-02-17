@@ -29,11 +29,11 @@ projections are cosine-similarity-based.}
 Reduce if running out of memory. Larger batches are faster on GPU.}
 }
 \value{
-Numeric matrix of shape \eqn{n \times 512}. Row names are
+Numeric matrix of shape \eqn{n \times 1152}. Row names are
   set to \code{image_paths}.
 }
 \description{
-Encodes a character vector of image file paths into 512-dimensional vectors
+Encodes a character vector of image file paths into 1152-dimensional vectors
 using the SigLIP image encoder. The resulting vectors live in the same shared
 text-image embedding space as the text embeddings, so images can be scored by
 vectionaries whose axes were learned from text.

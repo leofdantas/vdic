@@ -2,7 +2,7 @@
 #
 # This file provides utilities for encoding text and images with SigLIP via
 # Python and the reticulate package. SigLIP is a multi-modal model from Google
-# (google/siglip-so400m-patch14-384) that produces 512-dimensional embeddings in
+# (google/siglip-so400m-patch14-384) that produces 1152-dimensional embeddings in
 # a shared text-image space — the same vector space for both words and images.
 #
 # Unlike word2vec/FastText/GloVe, SigLIP is a neural network model and does NOT
@@ -15,13 +15,13 @@
 # Installation guide (run once in R):
 #   install.packages("reticulate")
 #   reticulate::install_miniconda()        # if no Python environment exists
-#   reticulate::py_install(c("transformers", "torch", "Pillow"))
+#   reticulate::py_install(c("transformers", "torch", "Pillow", "sentencepiece"))
 #
 # Two functions are provided:
-#   .encode_text_siglip()  — encodes words/phrases to 512-dim vectors (for building axes)
-#   .encode_images_siglip() — encodes image files to 512-dim vectors (for analyzing images)
+#   .encode_text_siglip()  — encodes words/phrases to 1152-dim vectors (for building axes)
+#   .encode_images_siglip() — encodes image files to 1152-dim vectors (for analyzing images)
 #
-# Both return a unit-normalized matrix of shape (n x 512), ready for ridge regression.
+# Both return a unit-normalized matrix of shape (n x 1152), ready for ridge regression.
 
 
 #-- Internal: Check for reticulate and Python dependencies ----
@@ -46,7 +46,7 @@
       "  install.packages('reticulate')\n\n",
       "Then set up a Python environment with the required libraries:\n",
       "  reticulate::install_miniconda()\n",
-      "  reticulate::py_install(c('transformers', 'torch', 'Pillow'))\n\n",
+      "  reticulate::py_install(c('transformers', 'torch', 'Pillow', 'sentencepiece'))\n\n",
       "Text-based vectionaries do not require Python or reticulate."
     )
   }
@@ -56,14 +56,14 @@
       "No Python environment found. reticulate requires a working Python installation.\n\n",
       "Set up a Python environment with:\n",
       "  reticulate::install_miniconda()\n",
-      "  reticulate::py_install(c('transformers', 'torch', 'Pillow'))\n\n",
+      "  reticulate::py_install(c('transformers', 'torch', 'Pillow', 'sentencepiece'))\n\n",
       "Or point reticulate to an existing environment:\n",
       "  reticulate::use_virtualenv('/path/to/venv')\n",
       "  reticulate::use_condaenv('my_env')"
     )
   }
 
-  required  <- c("transformers", "torch", "PIL")
+  required  <- c("transformers", "torch", "PIL", "sentencepiece")
   missing   <- required[!vapply(required, reticulate::py_module_available, logical(1L))]
 
   if (length(missing) > 0L) {
@@ -142,7 +142,7 @@
 #'
 #' @description
 #' Encodes a character vector of text strings (typically dictionary words or
-#' short phrases) into 512-dimensional vectors using the SigLIP text encoder.
+#' short phrases) into 1152-dimensional vectors using the SigLIP text encoder.
 #' The resulting vectors live in the shared text-image embedding space, which
 #' means they can be used to build axes that score images.
 #'
@@ -160,7 +160,7 @@
 #' @param batch_size Integer. Number of strings to encode per batch (default: 64).
 #'   Larger batches are faster but use more memory.
 #'
-#' @return Numeric matrix of shape \eqn{n \times 512}. Row names are
+#' @return Numeric matrix of shape \eqn{n \times 1152}. Row names are
 #'   set to \code{text_strings}.
 #'
 #' @keywords internal
@@ -195,14 +195,15 @@
     )
 
     # Run without gradient tracking (inference mode, faster + less memory)
+    # SigLIP tokenizer may not return attention_mask; pass it only when present
     with(model$torch$no_grad(), {
-      features <- model$model$get_text_features(
-        input_ids      = inputs$input_ids,
-        attention_mask = inputs$attention_mask
-      )
+      attn_mask   <- tryCatch(inputs$attention_mask, error = function(e) NULL)
+      call_args   <- list(input_ids = inputs$input_ids)
+      if (!is.null(attn_mask)) call_args[["attention_mask"]] <- attn_mask
+      features    <- do.call(model$model$get_text_features, call_args)
     })
 
-    # Convert torch tensor (batch_size x 512) to R matrix
+    # Convert torch tensor (batch_size x 1152) to R matrix
     feat_r <- reticulate::py_to_r(features$detach()$cpu()$numpy())
     result_rows[[i]] <- feat_r
 
@@ -225,7 +226,7 @@
 #' Encode image files using SigLIP image encoder (internal)
 #'
 #' @description
-#' Encodes a character vector of image file paths into 512-dimensional vectors
+#' Encodes a character vector of image file paths into 1152-dimensional vectors
 #' using the SigLIP image encoder. The resulting vectors live in the same shared
 #' text-image embedding space as the text embeddings, so images can be scored by
 #' vectionaries whose axes were learned from text.
@@ -244,7 +245,7 @@
 #' @param batch_size Integer. Number of images to encode per batch (default: 32).
 #'   Reduce if running out of memory. Larger batches are faster on GPU.
 #'
-#' @return Numeric matrix of shape \eqn{n \times 512}. Row names are
+#' @return Numeric matrix of shape \eqn{n \times 1152}. Row names are
 #'   set to \code{image_paths}.
 #'
 #' @keywords internal

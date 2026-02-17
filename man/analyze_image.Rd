@@ -34,13 +34,13 @@ Data frame with one row per image and one column per dimension, plus
 }
 \description{
 Scores a set of image files on the semantic dimensions of a multi-modal
-vectionary. Each image is encoded to a 512-dimensional SigLIP vector and
+vectionary. Each image is encoded to a 1152-dimensional SigLIP vector and
 projected onto the vectionary's learned axes.
 
 The vectionary must have been built with \code{modality = "multimodal"} in
 [vectionary_builder()], meaning its axes were learned from dictionary words
 encoded via SigLIP's text encoder. Because SigLIP maps both text and images
-into the same 512-dimensional space, images can be scored by those same axes
+into the same 1152-dimensional space, images can be scored by those same axes
 — no labeled image training data required.
 
 **Python required:** Encoding images requires Python with the \code{transformers},
@@ -49,7 +49,7 @@ package. Set up once with:
 \preformatted{
 install.packages("reticulate")
 reticulate::install_miniconda()   # skip if Python is already configured
-reticulate::py_install(c("transformers", "torch", "Pillow"))
+reticulate::py_install(c("transformers", "torch", "Pillow", "sentencepiece"))
 }
 }
 \examples{

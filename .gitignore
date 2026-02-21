@@ -12,7 +12,7 @@ vectionary.rds
 tests/images
 
 # testing
-tests/test_multimodal.R
+testing
 
 # Claude
 CLAUDE.md

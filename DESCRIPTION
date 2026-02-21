@@ -1,7 +1,7 @@
 Package: vdic
 Type: Package
 Title: Build and Use Vec-tionaries for Text and Image Analysis
-Version: 1.2.0
+Version: 1.2.1
 Authors@R: person("Leonardo", "Dantas",
                   email = "lf5453@princeton.edu",
                   role = c("aut", "cre"))

@@ -2019,8 +2019,8 @@ vectionary_builder <- function(
 #' @param word_scores Numeric vector of scores for each word
 #' @param lambda Ridge regularization parameter (default: 1.0)
 #'
-#' @return Numeric vector representing the axis. Not unit-normalized; scale encodes
-#'   dictionary scores when used with unit-norm embeddings.
+#' @return Numeric vector representing the learned axis, unit-normalized to length 1.
+#'   Scores from dotting L2-normalized embeddings with this axis are cosine similarities.
 #'
 #' @keywords internal
 .solve_axis_ridge <- function(word_vectors, word_scores, lambda = 1.0) {
@@ -2035,8 +2035,8 @@ vectionary_builder <- function(
   #
   # The L2 penalty $\lambda I$ shrinks the axis toward zero, preventing
   # overfitting when embedding_dims >> n_words. Higher lambda = more shrinkage.
-  # The axis is NOT unit-normalized — its magnitude encodes the dictionary
-  # score scale, so seed words project to approximately their original scores.
+  # The axis is unit-normalized after solving so that projections yield
+  # cosine similarities when used with L2-normalized embeddings.
 
   # crossprod(W) is faster than t(W) %*% W (avoids explicit transpose)
   WtW <- crossprod(W)
@@ -2057,6 +2057,10 @@ vectionary_builder <- function(
     }
   )
 
+  # Unit-normalize for consistency with Duan method and for interpretable
+  # cosine-similarity scores when projecting L2-normalized embeddings
+  axis <- axis / sqrt(sum(axis^2))
+
   return(as.numeric(axis))
 }
 
@@ -2072,8 +2076,8 @@ vectionary_builder <- function(
 #' @param lambda Regularization strength (higher = more regularization)
 #' @param l1_ratio Mixing parameter between L1 and L2 (0 = ridge, 1 = lasso, 0.5 = equal mix)
 #'
-#' @return Numeric vector representing the learned axis. Not unit-normalized; scale
-#'   encodes dictionary scores when used with unit-norm embeddings.
+#' @return Numeric vector representing the learned axis, unit-normalized to length 1.
+#'   Scores from dotting L2-normalized embeddings with this axis are cosine similarities.
 #'
 #' @keywords internal
 .solve_axis_elastic_net <- function(word_vectors, word_scores, lambda = 1.0, l1_ratio = 0.5) {
@@ -2109,6 +2113,10 @@ vectionary_builder <- function(
     cli::cli_alert_warning("Elastic net produced zero axis (lambda too high), falling back to ridge")
     return(.solve_axis_ridge(word_vectors, word_scores, lambda))
   }
+
+  # Unit-normalize for consistency with ridge/Duan and for interpretable
+  # cosine-similarity scores when projecting L2-normalized embeddings
+  axis <- axis / axis_norm
 
   return(as.numeric(axis))
 }

@@ -16,8 +16,8 @@
 \item{l1_ratio}{Mixing parameter between L1 and L2 (0 = ridge, 1 = lasso, 0.5 = equal mix)}
 }
 \value{
-Numeric vector representing the learned axis. Not unit-normalized; scale
-  encodes dictionary scores when used with unit-norm embeddings.
+Numeric vector representing the learned axis, unit-normalized to length 1.
+  Scores from dotting L2-normalized embeddings with this axis are cosine similarities.
 }
 \description{
 Learns a semantic axis using elastic net regularization (combination of L1 and L2 penalties).

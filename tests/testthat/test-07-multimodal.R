@@ -30,7 +30,7 @@
   )
 }
 
-.create_multimodal_vectionary <- function(dim = 1152L) {
+.create_multimodal_vectionary <- function(dim = 1536L) {
   axes <- list(
     care = rnorm(dim),
     harm = rnorm(dim)
@@ -42,7 +42,7 @@
       dimensions       = c("care", "harm"),
       modality         = "multimodal",
       embedding_dim    = dim,
-      metadata         = list(model_name = "google/siglip-so400m-patch14-384")
+      metadata         = list(model_name = "google/siglip2-giant-opt-patch16-384")
     ),
     class = "Vec-tionary"
   )
@@ -150,10 +150,10 @@ test_that("multimodal vectionary has correct structure", {
 
   expect_s3_class(vect, "Vec-tionary")
   expect_equal(vect[["modality"]], "multimodal")
-  expect_equal(vect[["embedding_dim"]], 1152L)
+  expect_equal(vect[["embedding_dim"]], 1536L)
   expect_null(vect[["word_projections"]])
-  expect_length(vect$axes$care, 1152L)
-  expect_length(vect$axes$harm, 1152L)
+  expect_length(vect$axes$care, 1536L)
+  expect_length(vect$axes$harm, 1536L)
 })
 
 test_that("print() shows modality and embedding_dim for multimodal vectionary", {
@@ -161,7 +161,7 @@ test_that("print() shows modality and embedding_dim for multimodal vectionary", 
   out  <- capture.output(print(vect))
 
   expect_true(any(grepl("multimodal", out, ignore.case = TRUE)))
-  expect_true(any(grepl("1152", out)))
+  expect_true(any(grepl("1536", out)))
 })
 
 
@@ -178,7 +178,7 @@ test_that("SigLIP model loads and caches correctly", {
   expect_identical(mm$model, mm2$model)  # cache hit
 })
 
-test_that(".encode_text_siglip() returns unit-normalized (n x 1152) matrix", {
+test_that(".encode_text_siglip() returns unit-normalized (n x 1536) matrix", {
   skip_if_not_siglip()
 
   words <- c("protect", "harm", "care")
@@ -186,14 +186,14 @@ test_that(".encode_text_siglip() returns unit-normalized (n x 1152) matrix", {
 
   expect_true(is.matrix(emb))
   expect_equal(nrow(emb), 3L)
-  expect_equal(ncol(emb), 1152L)
+  expect_equal(ncol(emb), 1536L)
   expect_equal(rownames(emb), words)
 
   norms <- sqrt(rowSums(emb^2))
   expect_true(all(abs(norms - 1) < 1e-5))
 })
 
-test_that(".encode_images_siglip() returns unit-normalized (n x 1152) matrix", {
+test_that(".encode_images_siglip() returns unit-normalized (n x 1536) matrix", {
   skip_if_not_siglip()
 
   img_files <- replicate(2, tempfile(fileext = ".png"))
@@ -209,7 +209,7 @@ test_that(".encode_images_siglip() returns unit-normalized (n x 1152) matrix", {
 
   expect_true(is.matrix(emb))
   expect_equal(nrow(emb), 2L)
-  expect_equal(ncol(emb), 1152L)
+  expect_equal(ncol(emb), 1536L)
   expect_equal(rownames(emb), img_files)
 
   norms <- sqrt(rowSums(emb^2))

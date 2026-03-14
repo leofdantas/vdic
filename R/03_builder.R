@@ -41,10 +41,10 @@
 #' @param modality Embedding modality (default: "text"). Options:
 #'   \itemize{
 #'     \item "text": Use traditional word embeddings (FastText, word2vec, GloVe)
-#'     \item "multimodal": Use SigLIP multi-modal embeddings. Dictionary words are
-#'       encoded in the shared text-image embedding space (1152-dim), creating axes
+#'     \item "multimodal": Use SigLIP 2 multi-modal embeddings. Dictionary words are
+#'       encoded in the shared text-image embedding space (1536-dim), creating axes
 #'       that can analyze both text and images. Requires embeddings parameter to be
-#'       "siglip" or a path to pre-computed SigLIP embeddings.
+#'       "siglip" or a path to pre-computed SigLIP 2 embeddings.
 #'   }
 #' @param language Language code for stopwords and spell checking (default: "en").
 #'   Any language supported by the wooorm/dictionaries repository can be used
@@ -743,7 +743,7 @@ vectionary_builder <- function(
       image_projections = NULL,  # Only populated for multimodal vectionaries
       dimensions = dimensions,
       modality = "text",
-      embedding_dim = length(result$axes[[1]]),  # Auto-detect from axes (300 for word2vec, 1152 for SigLIP)
+      embedding_dim = length(result$axes[[1]]),  # Auto-detect from axes (300 for word2vec, 1536 for SigLIP 2)
       metadata = list(
         method = method,
         l1_ratio = if (method == "elastic_net") l1_ratio else if (method == "lasso") 1.0 else NULL,

@@ -6,16 +6,16 @@
 #
 # Pipeline for .build_multimodal_axes():
 #   1. Check Python/reticulate dependencies (.check_siglip_deps)
-#   2. Encode dictionary words with SigLIP text encoder -> n x 1152 matrix
+#   2. Encode dictionary words with SigLIP 2 text encoder -> n x 1536 matrix
 #   3. Select lambda via GCV using .gcv_select_lambda(W, y) directly (no file)
 #   4. Learn axes with the same solvers as the text pipeline:
 #        .solve_axis_ridge(), .solve_axis_elastic_net(), .solve_axis_duan()
-#   5. Package into Vec-tionary S3 object (modality = "multimodal", embedding_dim = 1152)
-#      word_projections = NULL (no fixed vocabulary in SigLIP)
+#   5. Package into Vec-tionary S3 object (modality = "multimodal", embedding_dim = 1536)
+#      word_projections = NULL (no fixed vocabulary in SigLIP 2)
 #
 # Pipeline for analyze_image():
 #   1. Check Python/reticulate dependencies
-#   2. Encode images with SigLIP image encoder -> n x 1152 matrix
+#   2. Encode images with SigLIP 2 image encoder -> n x 1536 matrix
 #   3. Project each row onto vect$axes via matrix-vector multiplication
 #   4. Return data frame: image path + one column per dimension
 #
@@ -23,9 +23,7 @@
 # vocabulary file. All embeddings are computed on-the-fly via reticulate +
 # Python transformers. Text-only vectionaries (03_builder.R) require no Python.
 
-
 #-- Internal: Build Multi-Modal Axes ----
-
 #' Build multi-modal axes using SigLIP text encoder (internal)
 #'
 #' @description
@@ -80,7 +78,7 @@
   #-- Step 1: Check Python dependencies ----
   .check_siglip_deps()
 
-  model_name <- "google/siglip-so400m-patch14-384"
+  model_name <- "google/siglip2-giant-opt-patch16-384"
 
   if (verbose) {
     cli::cli_h1("Building Multi-Modal Vec-tionary")
@@ -94,15 +92,15 @@
 
   t_start <- Sys.time()
 
-  #-- Step 2: Load SigLIP model ----
+  #-- Step 2: Load SigLIP 2 model ----
   mm <- .load_siglip_model(model_name)
 
   #-- Step 3: Encode dictionary words ----
-  if (verbose) cli::cli_h2("Encoding dictionary words with SigLIP")
+  if (verbose) cli::cli_h2("Encoding dictionary words with SigLIP 2")
   t_step <- Sys.time()
 
   words        <- unique(dictionary$word)
-  emb_matrix   <- .encode_text_siglip(words, model = mm)  # n_words x 1152
+  emb_matrix   <- .encode_text_siglip(words, model = mm)  # n_words x 1536
 
   if (verbose) {
     t_elapsed <- round(as.numeric(difftime(Sys.time(), t_step, units = "secs")), 1)
@@ -235,13 +233,13 @@
 #'
 #' @description
 #' Scores a set of image files on the semantic dimensions of a multi-modal
-#' vectionary. Each image is encoded to a 1152-dimensional SigLIP vector and
+#' vectionary. Each image is encoded to a 1536-dimensional SigLIP 2 vector and
 #' projected onto the vectionary's learned axes.
 #'
 #' The vectionary must have been built with \code{modality = "multimodal"} in
 #' [vectionary_builder()], meaning its axes were learned from dictionary words
-#' encoded via SigLIP's text encoder. Because SigLIP maps both text and images
-#' into the same 1152-dimensional space, images can be scored by those same axes
+#' encoded via SigLIP 2's text encoder. Because SigLIP 2 maps both text and images
+#' into the same 1536-dimensional space, images can be scored by those same axes
 #' — no labeled image training data required.
 #'
 #' **Python required:** Encoding images requires Python with the \code{transformers},
@@ -257,9 +255,9 @@
 #'   [vectionary_builder()] using \code{modality = "multimodal"}.
 #' @param images Character vector of image file paths to analyze. Accepts JPEG,
 #'   PNG, BMP, WebP, and other formats supported by Pillow.
-#' @param model_name SigLIP model ID on Hugging Face Hub (default:
-#'   \code{"google/siglip-so400m-patch14-384"}). The model is downloaded and
-#'   cached by the \code{transformers} library on first use (approximately 800 MB).
+#' @param model_name SigLIP 2 model ID on Hugging Face Hub (default:
+#'   \code{"google/siglip2-giant-opt-patch16-384"}). The model is downloaded and
+#'   cached by the \code{transformers} library on first use (approximately 3 GB).
 #'   Must match the model used when building the vectionary.
 #' @param batch_size Integer. Number of images to encode per batch (default: 32).
 #'   Reduce if you run out of memory; increase for faster processing on GPU.
@@ -306,7 +304,7 @@
 analyze_image <- function(
   vect,
   images,
-  model_name = "google/siglip-so400m-patch14-384",
+  model_name = "google/siglip2-giant-opt-patch16-384",
   batch_size = 32L,
   alpha      = NULL
 ) {
@@ -349,10 +347,10 @@ analyze_image <- function(
     image_paths = images,
     model       = mm,
     batch_size  = batch_size
-  )  # n_images x 1152
+  )  # n_images x 1536
 
   #-- Project onto learned axes ----
-  # Each axis is a 1152-dim vector; dot product with image embedding = score
+  # Each axis is a 1536-dim vector; dot product with image embedding = score
   dims   <- vect$dimensions
   scores <- lapply(dims, function(dim) as.numeric(emb_matrix %*% vect$axes[[dim]]))
   names(scores) <- dims
@@ -408,7 +406,7 @@ analyze_image <- function(
 #'     \code{word_projections} table, and the mean projection score is returned.
 #'     This path requires no Python and works offline.}
 #'   \item{Multi-modal vectionary (\code{modality = "multimodal"})}{
-#'     Each text is encoded to a 1152-dimensional SigLIP vector via the text
+#'     Each text is encoded to a 1536-dimensional SigLIP 2 vector via the text
 #'     encoder and projected onto the vectionary axes — the same axes used by
 #'     [analyze_image()]. This enables direct comparison of text and image
 #'     scores on the same scale. Requires Python with \code{transformers},
@@ -422,8 +420,8 @@ analyze_image <- function(
 #' @param vect A Vec-tionary object built with [vectionary_builder()].
 #' @param text Character vector of texts to analyze. Each element is treated as
 #'   one document.
-#' @param model_name SigLIP model ID on Hugging Face Hub (default:
-#'   \code{"google/siglip-so400m-patch14-384"}). Only used for multimodal
+#' @param model_name SigLIP 2 model ID on Hugging Face Hub (default:
+#'   \code{"google/siglip2-giant-opt-patch16-384"}). Only used for multimodal
 #'   vectionaries. Must match the model used when building the vectionary.
 #' @param batch_size Integer. Number of texts to encode per batch (default:
 #'   64L). Only used for multimodal vectionaries.
@@ -455,7 +453,7 @@ analyze_image <- function(
 analyze_text <- function(
   vect,
   text,
-  model_name = "google/siglip-so400m-patch14-384",
+  model_name = "google/siglip2-giant-opt-patch16-384",
   batch_size = 64L
 ) {
 

@@ -17,8 +17,8 @@
 #'     \item \code{"fasttext"}: FastText Common Crawl embeddings (all languages).
 #'     \item \code{"word2vec"}: Google News word2vec (English) or PT2Vec (Portuguese).
 #'     \item \code{"glove"}: GloVe 6B trained on Wikipedia + Gigaword (English only).
-#'     \item \code{"siglip"}: Google SigLIP multi-modal model
-#'       (\code{google/siglip-so400m-patch14-384}, 1152 dimensions). Downloads and
+#'     \item \code{"siglip"}: Google SigLIP 2 multi-modal model
+#'       (\code{google/siglip2-giant-opt-patch16-384}, 1536 dimensions). Downloads and
 #'       caches the model via the Python \code{transformers} library. Requires
 #'       \code{reticulate} and a Python environment with
 #'       \code{transformers}, \code{torch}, \code{Pillow}, and
@@ -36,7 +36,7 @@
 #'
 #' @return For word embedding models: path to the downloaded (and decompressed)
 #'   embeddings file. For \code{"siglip"}: the Hugging Face model ID string
-#'   (\code{"google/siglip-so400m-patch14-384"}), which can be passed to
+#'   (\code{"google/siglip2-giant-opt-patch16-384"}), which can be passed to
 #'   \code{vectionary_builder(embeddings = ..., modality = "multimodal")}.
 #' @export
 #'
@@ -66,11 +66,11 @@ download_embeddings <- function(
 
   ##- SigLIP (multi-modal, Hugging Face) ----
   if (model == "siglip") {
-    model_name <- "google/siglip-so400m-patch14-384"
+    model_name <- "google/siglip2-giant-opt-patch16-384"
 
-    cli_h1("Downloading SigLIP multi-modal model")
+    cli_h1("Downloading SigLIP 2 multi-modal model")
     cli_alert_info("Model: {.val {model_name}}")
-    cli_alert_info("Dimensions: 1152 (shared text-image space)")
+    cli_alert_info("Dimensions: 1536 (shared text-image space)")
     cli_alert_info(paste0(
       "The model is downloaded once and cached by the Python ",
       "{.pkg transformers} library (usually in {.path ~/.cache/huggingface/})."

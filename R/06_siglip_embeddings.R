@@ -1,11 +1,11 @@
 #- SigLIP Embedding Utilities ----
 #
-# This file provides utilities for encoding text and images with SigLIP via
-# Python and the reticulate package. SigLIP is a multi-modal model from Google
-# (google/siglip-so400m-patch14-384) that produces 1152-dimensional embeddings in
+# This file provides utilities for encoding text and images with SigLIP 2 via
+# Python and the reticulate package. SigLIP 2 is a multi-modal model from Google
+# (google/siglip2-giant-opt-patch16-384) that produces 1536-dimensional embeddings in
 # a shared text-image space — the same vector space for both words and images.
 #
-# Unlike word2vec/FastText/GloVe, SigLIP is a neural network model and does NOT
+# Unlike word2vec/FastText/GloVe, SigLIP 2 is a neural network model and does NOT
 # provide a pre-computed vocabulary file. All embeddings must be computed on-the-fly
 # using the model. This requires:
 #   - Python (>= 3.9 recommended)
@@ -18,10 +18,10 @@
 #   reticulate::py_install(c("transformers", "torch", "Pillow", "sentencepiece"))
 #
 # Two functions are provided:
-#   .encode_text_siglip()  — encodes words/phrases to 1152-dim vectors (for building axes)
-#   .encode_images_siglip() — encodes image files to 1152-dim vectors (for analyzing images)
+#   .encode_text_siglip()  — encodes words/phrases to 1536-dim vectors (for building axes)
+#   .encode_images_siglip() — encodes image files to 1536-dim vectors (for analyzing images)
 #
-# Both return a unit-normalized matrix of shape (n x 1152), ready for ridge regression.
+# Both return a unit-normalized matrix of shape (n x 1536), ready for ridge regression.
 
 
 #-- Internal: Check for reticulate and Python dependencies ----
@@ -96,17 +96,17 @@
 #' download and loading step.
 #'
 #' @param model_name Hugging Face model ID
-#'   (default: \code{"google/siglip-so400m-patch14-384"})
+#'   (default: \code{"google/siglip2-giant-opt-patch16-384"})
 #'
 #' @return Named list with elements:
 #'   \describe{
-#'     \item{processor}{SiglipProcessor instance}
-#'     \item{model}{SiglipModel instance (eval mode, no gradients)}
+#'     \item{processor}{Siglip2Processor instance}
+#'     \item{model}{Siglip2Model instance (eval mode, no gradients)}
 #'     \item{torch}{torch Python module}
 #'   }
 #'
 #' @keywords internal
-.load_siglip_model <- function(model_name = "google/siglip-so400m-patch14-384") {
+.load_siglip_model <- function(model_name = "google/siglip2-giant-opt-patch16-384") {
 
   # Return cached model if already loaded for this model_name
   cache_key <- paste0("siglip_", model_name)
@@ -142,7 +142,7 @@
 #'
 #' @description
 #' Encodes a character vector of text strings (typically dictionary words or
-#' short phrases) into 1152-dimensional vectors using the SigLIP text encoder.
+#' short phrases) into 1536-dimensional vectors using the SigLIP 2 text encoder.
 #' The resulting vectors live in the shared text-image embedding space, which
 #' means they can be used to build axes that score images.
 #'
@@ -152,22 +152,22 @@
 #' @param text_strings Character vector of words or phrases to encode
 #' @param model Named list from \code{.load_siglip_model()}. If NULL (default),
 #'   loads the model automatically.
-#' @param model_name SigLIP model ID (default: \code{"google/siglip-so400m-patch14-384"}).
+#' @param model_name SigLIP 2 model ID (default: \code{"google/siglip2-giant-opt-patch16-384"}).
 #'   Only used when \code{model = NULL}.
 #' @param normalize Logical. If TRUE (default), normalizes each embedding to unit
-#'   length. SigLIP embeddings are designed to be unit-normalized; this ensures
+#'   length. SigLIP 2 embeddings are designed to be unit-normalized; this ensures
 #'   projections are cosine-similarity-based.
 #' @param batch_size Integer. Number of strings to encode per batch (default: 64).
 #'   Larger batches are faster but use more memory.
 #'
-#' @return Numeric matrix of shape \eqn{n \times 1152}. Row names are
+#' @return Numeric matrix of shape \eqn{n \times 1536}. Row names are
 #'   set to \code{text_strings}.
 #'
 #' @keywords internal
 .encode_text_siglip <- function(
   text_strings,
   model      = NULL,
-  model_name = "google/siglip-so400m-patch14-384",
+  model_name = "google/siglip2-giant-opt-patch16-384",
   normalize  = TRUE,
   batch_size = 64L
 ) {
@@ -256,8 +256,8 @@
 #' Encode image files using SigLIP image encoder (internal)
 #'
 #' @description
-#' Encodes a character vector of image file paths into 1152-dimensional vectors
-#' using the SigLIP image encoder. The resulting vectors live in the same shared
+#' Encodes a character vector of image file paths into 1536-dimensional vectors
+#' using the SigLIP 2 image encoder. The resulting vectors live in the same shared
 #' text-image embedding space as the text embeddings, so images can be scored by
 #' vectionaries whose axes were learned from text.
 #'
@@ -267,22 +267,22 @@
 #' @param image_paths Character vector of paths to image files (JPEG, PNG, etc.)
 #' @param model Named list from \code{.load_siglip_model()}. If NULL (default),
 #'   loads the model automatically.
-#' @param model_name SigLIP model ID (default: \code{"google/siglip-so400m-patch14-384"}).
+#' @param model_name SigLIP 2 model ID (default: \code{"google/siglip2-giant-opt-patch16-384"}).
 #'   Only used when \code{model = NULL}.
 #' @param normalize Logical. If TRUE (default), normalizes each embedding to unit
-#'   length. SigLIP embeddings are designed to be unit-normalized; this ensures
+#'   length. SigLIP 2 embeddings are designed to be unit-normalized; this ensures
 #'   projections are cosine-similarity-based.
 #' @param batch_size Integer. Number of images to encode per batch (default: 32).
 #'   Reduce if running out of memory. Larger batches are faster on GPU.
 #'
-#' @return Numeric matrix of shape \eqn{n \times 1152}. Row names are
+#' @return Numeric matrix of shape \eqn{n \times 1536}. Row names are
 #'   set to \code{image_paths}.
 #'
 #' @keywords internal
 .encode_images_siglip <- function(
   image_paths,
   model      = NULL,
-  model_name = "google/siglip-so400m-patch14-384",
+  model_name = "google/siglip2-giant-opt-patch16-384",
   normalize  = TRUE,
   batch_size = 32L
 ) {

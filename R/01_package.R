@@ -7,9 +7,9 @@
 #' semantic axes in embedding space that can score \emph{any} word or image.
 #'
 #' Text-based analysis uses R-only code and traditional word embeddings
-#' (FastText, word2vec, GloVe). Image analysis uses SigLIP multi-modal
-#' embeddings (\code{google/siglip-so400m-patch14-384}), which map both text
-#' and images into the same 1152-dimensional space — allowing text dictionaries
+#' (FastText, word2vec, GloVe). Image analysis uses SigLIP 2 multi-modal
+#' embeddings (\code{google/siglip2-giant-opt-patch16-384}), which map both text
+#' and images into the same 1536-dimensional space — allowing text dictionaries
 #' to score image content directly. Image support requires Python with the
 #' \code{transformers}, \code{torch}, and \code{Pillow} libraries installed and
 #' accessible via the \code{reticulate} package.

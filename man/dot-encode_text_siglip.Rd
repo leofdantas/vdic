@@ -7,7 +7,7 @@
 .encode_text_siglip(
   text_strings,
   model = NULL,
-  model_name = "google/siglip-so400m-patch14-384",
+  model_name = "google/siglip2-giant-opt-patch16-384",
   normalize = TRUE,
   batch_size = 64L
 )
@@ -18,23 +18,23 @@
 \item{model}{Named list from \code{.load_siglip_model()}. If NULL (default),
 loads the model automatically.}
 
-\item{model_name}{SigLIP model ID (default: \code{"google/siglip-so400m-patch14-384"}).
+\item{model_name}{SigLIP 2 model ID (default: \code{"google/siglip2-giant-opt-patch16-384"}).
 Only used when \code{model = NULL}.}
 
 \item{normalize}{Logical. If TRUE (default), normalizes each embedding to unit
-length. SigLIP embeddings are designed to be unit-normalized; this ensures
+length. SigLIP 2 embeddings are designed to be unit-normalized; this ensures
 projections are cosine-similarity-based.}
 
 \item{batch_size}{Integer. Number of strings to encode per batch (default: 64).
 Larger batches are faster but use more memory.}
 }
 \value{
-Numeric matrix of shape \eqn{n \times 1152}. Row names are
+Numeric matrix of shape \eqn{n \times 1536}. Row names are
   set to \code{text_strings}.
 }
 \description{
 Encodes a character vector of text strings (typically dictionary words or
-short phrases) into 1152-dimensional vectors using the SigLIP text encoder.
+short phrases) into 1536-dimensional vectors using the SigLIP 2 text encoder.
 The resulting vectors live in the shared text-image embedding space, which
 means they can be used to build axes that score images.
 

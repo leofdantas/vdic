@@ -4,17 +4,17 @@
 \alias{.load_siglip_model}
 \title{Load SigLIP model via reticulate (internal)}
 \usage{
-.load_siglip_model(model_name = "google/siglip-so400m-patch14-384")
+.load_siglip_model(model_name = "google/siglip2-giant-opt-patch16-384")
 }
 \arguments{
 \item{model_name}{Hugging Face model ID
-(default: \code{"google/siglip-so400m-patch14-384"})}
+(default: \code{"google/siglip2-giant-opt-patch16-384"})}
 }
 \value{
 Named list with elements:
   \describe{
-    \item{processor}{SiglipProcessor instance}
-    \item{model}{SiglipModel instance (eval mode, no gradients)}
+    \item{processor}{Siglip2Processor instance}
+    \item{model}{Siglip2Model instance (eval mode, no gradients)}
     \item{torch}{torch Python module}
   }
 }

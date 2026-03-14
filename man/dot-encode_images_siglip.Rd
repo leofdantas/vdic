@@ -7,7 +7,7 @@
 .encode_images_siglip(
   image_paths,
   model = NULL,
-  model_name = "google/siglip-so400m-patch14-384",
+  model_name = "google/siglip2-giant-opt-patch16-384",
   normalize = TRUE,
   batch_size = 32L
 )
@@ -18,23 +18,23 @@
 \item{model}{Named list from \code{.load_siglip_model()}. If NULL (default),
 loads the model automatically.}
 
-\item{model_name}{SigLIP model ID (default: \code{"google/siglip-so400m-patch14-384"}).
+\item{model_name}{SigLIP 2 model ID (default: \code{"google/siglip2-giant-opt-patch16-384"}).
 Only used when \code{model = NULL}.}
 
 \item{normalize}{Logical. If TRUE (default), normalizes each embedding to unit
-length. SigLIP embeddings are designed to be unit-normalized; this ensures
+length. SigLIP 2 embeddings are designed to be unit-normalized; this ensures
 projections are cosine-similarity-based.}
 
 \item{batch_size}{Integer. Number of images to encode per batch (default: 32).
 Reduce if running out of memory. Larger batches are faster on GPU.}
 }
 \value{
-Numeric matrix of shape \eqn{n \times 1152}. Row names are
+Numeric matrix of shape \eqn{n \times 1536}. Row names are
   set to \code{image_paths}.
 }
 \description{
-Encodes a character vector of image file paths into 1152-dimensional vectors
-using the SigLIP image encoder. The resulting vectors live in the same shared
+Encodes a character vector of image file paths into 1536-dimensional vectors
+using the SigLIP 2 image encoder. The resulting vectors live in the same shared
 text-image embedding space as the text embeddings, so images can be scored by
 vectionaries whose axes were learned from text.
 

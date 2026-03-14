@@ -38,10 +38,10 @@ word2vec .bin format, or GloVe .txt format.}
 \item{modality}{Embedding modality (default: "text"). Options:
 \itemize{
   \item "text": Use traditional word embeddings (FastText, word2vec, GloVe)
-  \item "multimodal": Use SigLIP multi-modal embeddings. Dictionary words are
-    encoded in the shared text-image embedding space (1152-dim), creating axes
+  \item "multimodal": Use SigLIP 2 multi-modal embeddings. Dictionary words are
+    encoded in the shared text-image embedding space (1536-dim), creating axes
     that can analyze both text and images. Requires embeddings parameter to be
-    "siglip" or a path to pre-computed SigLIP embeddings.
+    "siglip" or a path to pre-computed SigLIP 2 embeddings.
 }}
 
 \item{language}{Language code for stopwords and spell checking (default: "en").

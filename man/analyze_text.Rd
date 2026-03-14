@@ -7,7 +7,7 @@
 analyze_text(
   vect,
   text,
-  model_name = "google/siglip-so400m-patch14-384",
+  model_name = "google/siglip2-giant-opt-patch16-384",
   batch_size = 64L
 )
 }
@@ -17,8 +17,8 @@ analyze_text(
 \item{text}{Character vector of texts to analyze. Each element is treated as
 one document.}
 
-\item{model_name}{SigLIP model ID on Hugging Face Hub (default:
-\code{"google/siglip-so400m-patch14-384"}). Only used for multimodal
+\item{model_name}{SigLIP 2 model ID on Hugging Face Hub (default:
+\code{"google/siglip2-giant-opt-patch16-384"}). Only used for multimodal
 vectionaries. Must match the model used when building the vectionary.}
 
 \item{batch_size}{Integer. Number of texts to encode per batch (default:
@@ -41,7 +41,7 @@ Two analysis paths are supported depending on the vec-tionary's modality:
     \code{word_projections} table, and the mean projection score is returned.
     This path requires no Python and works offline.}
   \item{Multi-modal vectionary (\code{modality = "multimodal"})}{
-    Each text is encoded to a 1152-dimensional SigLIP vector via the text
+    Each text is encoded to a 1536-dimensional SigLIP 2 vector via the text
     encoder and projected onto the vectionary axes — the same axes used by
     [analyze_image()]. This enables direct comparison of text and image
     scores on the same scale. Requires Python with \code{transformers},

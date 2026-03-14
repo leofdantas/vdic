@@ -7,7 +7,7 @@
 analyze_image(
   vect,
   images,
-  model_name = "google/siglip-so400m-patch14-384",
+  model_name = "google/siglip2-giant-opt-patch16-384",
   batch_size = 32L,
   alpha = NULL
 )
@@ -19,9 +19,9 @@ analyze_image(
 \item{images}{Character vector of image file paths to analyze. Accepts JPEG,
 PNG, BMP, WebP, and other formats supported by Pillow.}
 
-\item{model_name}{SigLIP model ID on Hugging Face Hub (default:
-\code{"google/siglip-so400m-patch14-384"}). The model is downloaded and
-cached by the \code{transformers} library on first use (approximately 800 MB).
+\item{model_name}{SigLIP 2 model ID on Hugging Face Hub (default:
+\code{"google/siglip2-giant-opt-patch16-384"}). The model is downloaded and
+cached by the \code{transformers} library on first use (approximately 3 GB).
 Must match the model used when building the vectionary.}
 
 \item{batch_size}{Integer. Number of images to encode per batch (default: 32).
@@ -45,13 +45,13 @@ Data frame with one row per image and one column per dimension, plus
 }
 \description{
 Scores a set of image files on the semantic dimensions of a multi-modal
-vectionary. Each image is encoded to a 1152-dimensional SigLIP vector and
+vectionary. Each image is encoded to a 1536-dimensional SigLIP 2 vector and
 projected onto the vectionary's learned axes.
 
 The vectionary must have been built with \code{modality = "multimodal"} in
 [vectionary_builder()], meaning its axes were learned from dictionary words
-encoded via SigLIP's text encoder. Because SigLIP maps both text and images
-into the same 1152-dimensional space, images can be scored by those same axes
+encoded via SigLIP 2's text encoder. Because SigLIP 2 maps both text and images
+into the same 1536-dimensional space, images can be scored by those same axes
 — no labeled image training data required.
 
 **Python required:** Encoding images requires Python with the \code{transformers},

@@ -21,8 +21,8 @@ or \code{"es"} (Spanish). Ignored when \code{model = "siglip"}.}
   \item \code{"fasttext"}: FastText Common Crawl embeddings (all languages).
   \item \code{"word2vec"}: Google News word2vec (English) or PT2Vec (Portuguese).
   \item \code{"glove"}: GloVe 6B trained on Wikipedia + Gigaword (English only).
-  \item \code{"siglip"}: Google SigLIP multi-modal model
-    (\code{google/siglip-so400m-patch14-384}, 1152 dimensions). Downloads and
+  \item \code{"siglip"}: Google SigLIP 2 multi-modal model
+    (\code{google/siglip2-giant-opt-patch16-384}, 1536 dimensions). Downloads and
     caches the model via the Python \code{transformers} library. Requires
     \code{reticulate} and a Python environment with
     \code{transformers}, \code{torch}, \code{Pillow}, and
@@ -44,7 +44,7 @@ re-loaded from the HF cache on next use.}
 \value{
 For word embedding models: path to the downloaded (and decompressed)
   embeddings file. For \code{"siglip"}: the Hugging Face model ID string
-  (\code{"google/siglip-so400m-patch14-384"}), which can be passed to
+  (\code{"google/siglip2-giant-opt-patch16-384"}), which can be passed to
   \code{vectionary_builder(embeddings = ..., modality = "multimodal")}.
 }
 \description{

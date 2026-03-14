@@ -132,6 +132,44 @@
       t_elapsed <- round(as.numeric(difftime(Sys.time(), t_step, units = "secs")), 1)
       cli::cli_alert_success("Lambda = {round(lambda, 4)} ({t_elapsed}s)")
     }
+  } else if (use_gcv) {
+    # Elastic net / lasso: use glmnet cross-validation on the embedding matrix
+    if (verbose) cli::cli_h2("Selecting lambda via cross-validation")
+    t_step <- Sys.time()
+
+    glmnet_alpha <- if (method == "lasso") 1 else l1_ratio
+
+    lambdas_per_dim <- vapply(dimensions, function(dim) {
+      scores <- dictionary[[dim]]
+      names(scores) <- dictionary$word
+      y  <- as.numeric(scores[words])
+      ok <- !is.na(y)
+      W  <- emb_matrix[ok, , drop = FALSE]
+      y_ok <- y[ok]
+
+      if (sum(ok) < 3L) return(0.1)
+
+      nfolds     <- max(3L, min(sum(ok), 10L))
+      cv_result  <- tryCatch(
+        glmnet::cv.glmnet(
+          x = W, y = y_ok,
+          alpha       = glmnet_alpha,
+          nfolds      = nfolds,
+          standardize = FALSE,
+          intercept   = FALSE
+        ),
+        error = function(e) NULL
+      )
+
+      if (is.null(cv_result)) 0.1 else cv_result$lambda.min
+    }, numeric(1L))
+
+    lambda <- stats::median(lambdas_per_dim)
+
+    if (verbose) {
+      t_elapsed <- round(as.numeric(difftime(Sys.time(), t_step, units = "secs")), 1)
+      cli::cli_alert_success("Lambda = {round(lambda, 4)} ({t_elapsed}s)")
+    }
   } else if (!is.null(lambda_range)) {
     # Grid search: select best lambda per dimension, take median
     if (verbose) cli::cli_h2("Selecting lambda via grid search")
@@ -151,7 +189,7 @@
   #-- Step 5: Learn axes ----
   if (verbose) {
     cli::cli_h2("Learning axes")
-    cli::cli_alert_info("Method: {method}{if (!is.null(lambda)) paste0(' | Lambda: ', round(lambda, 4)) else ''}")
+    cli::cli_alert_info("Method: {method}{if (is.numeric(lambda) && length(lambda) == 1L) paste0(' | Lambda: ', round(lambda, 4)) else ''}")
   }
   t_step <- Sys.time()
 

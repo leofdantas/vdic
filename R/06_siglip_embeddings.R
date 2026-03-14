@@ -178,7 +178,7 @@
   batches <- split(text_strings, ceiling(seq_len(n) / batch_size))
 
   cli::cli_progress_bar(
-    "Encoding {n} word{?s} with SigLIP",
+    paste0("Encoding ", n, " word", if (n != 1L) "s" else "", " with SigLIP 2"),
     total = length(batches)
   )
 
@@ -304,7 +304,7 @@
   batches <- split(image_paths, ceiling(seq_len(n) / batch_size))
 
   cli::cli_progress_bar(
-    "Encoding {n} image{?s} with SigLIP",
+    paste0("Encoding ", n, " image", if (n != 1L) "s" else "", " with SigLIP 2"),
     total = length(batches)
   )
 

@@ -199,8 +199,8 @@ NULL
   if (name == "diagnose") {
     # $diagnose returns a function with different signature (n, dimension)
     # than the scoring methods (text), so it's handled separately
-    return(function(n = 30, dimension = NULL) {
-      vectionary_diagnose(x, n = n, dimension = dimension)
+    return(function(n = 30, dimension = NULL, verbose = TRUE) {
+      vectionary_diagnose(x, n = n, dimension = dimension, verbose = verbose)
     })
 
   } else if (name %in% valid_methods) {
@@ -975,7 +975,7 @@ vectionary_analyze <- function(vect, text, metric = "mean", alpha = NULL) {
 #' }
 #'
 #' @export
-vectionary_diagnose <- function(vectionary, n = 30, dimension = NULL) {
+vectionary_diagnose <- function(vectionary, n = 30, dimension = NULL, verbose = TRUE) {
 
   if (!inherits(vectionary, "Vec-tionary")) {
     stop("vectionary must be a Vec-tionary object (from vectionary_builder())")
@@ -1001,7 +1001,7 @@ vectionary_diagnose <- function(vectionary, n = 30, dimension = NULL) {
   seed_all <- vectionary$metadata$seed_words
   if (is.null(seed_per_dim) && is.null(seed_all)) {
     seed_all <- character(0)
-    cli::cli_alert_warning("No seed words stored in this vectionary (built with older version?)")
+    if (verbose) cli::cli_alert_warning("No seed words stored in this vectionary (built with older version?)")
   }
 
   results <- list()
@@ -1034,40 +1034,40 @@ vectionary_diagnose <- function(vectionary, n = 30, dimension = NULL) {
     n_seed <- nrow(seed_rows)
     n_seed_in_top <- sum(top_n$seed)
 
-    cli::cli_h1("Dimension: {dim}")
+    if (verbose) {
+      cli::cli_h1("Dimension: {dim}")
 
-    if (n_seed > 0) {
-      median_rank <- stats::median(seed_rows$rank)
-      best_rank <- min(seed_rows$rank)
-      worst_rank <- max(seed_rows$rank)
-      pct_in_top <- round(100 * n_seed_in_top / n_seed, 1)
+      if (n_seed > 0) {
+        median_rank <- stats::median(seed_rows$rank)
+        best_rank <- min(seed_rows$rank)
+        worst_rank <- max(seed_rows$rank)
+        pct_in_top <- round(100 * n_seed_in_top / n_seed, 1)
 
-      cli::cli_alert_info("{n_seed_in_top}/{n_seed} seed words in top {n} ({pct_in_top}%)")
-      cli::cli_alert_info("Seed word ranks: best = {best_rank}, median = {median_rank}, worst = {worst_rank}")
-      cli::cli_alert_info("Seed word scores: max = {round(max(seed_rows$score), 4)}, median = {round(stats::median(seed_rows$score), 4)}, min = {round(min(seed_rows$score), 4)}")
-    }
-
-    cli::cli_h2("Top {min(n, nrow(wp_sorted))} words")
-
-    # Mark seed words with an asterisk for easy visual identification
-    display <- top_n
-    display$word <- ifelse(display$seed, paste0(display$word, " *"), display$word)
-    display$seed <- NULL
-    print(display, row.names = FALSE)
-
-    # Show seed words that didn't make it into the top N — these might
-    # indicate dimension learning issues or unusual seed words
-    if (n_seed > 0) {
-      missed_seeds <- seed_rows[seed_rows$rank > n, ]
-      if (nrow(missed_seeds) > 0) {
-        cli::cli_h2("Seed words outside top {n}")
-        missed_display <- missed_seeds
-        missed_display$seed <- NULL
-        print(missed_display, row.names = FALSE)
+        cli::cli_alert_info("{n_seed_in_top}/{n_seed} seed words in top {n} ({pct_in_top}%)")
+        cli::cli_alert_info("Seed word ranks: best = {best_rank}, median = {median_rank}, worst = {worst_rank}")
+        cli::cli_alert_info("Seed word scores: max = {round(max(seed_rows$score), 4)}, median = {round(stats::median(seed_rows$score), 4)}, min = {round(min(seed_rows$score), 4)}")
       }
+
+      cli::cli_h2("Top {min(n, nrow(wp_sorted))} words")
+
+      display <- top_n
+      display$word <- ifelse(display$seed, paste0(display$word, " *"), display$word)
+      display$seed <- NULL
+      print(display, row.names = FALSE)
+
+      if (n_seed > 0) {
+        missed_seeds <- seed_rows[seed_rows$rank > n, ]
+        if (nrow(missed_seeds) > 0) {
+          cli::cli_h2("Seed words outside top {n}")
+          missed_display <- missed_seeds
+          missed_display$seed <- NULL
+          print(missed_display, row.names = FALSE)
+        }
+      }
+
+      cli::cli_text("")
     }
 
-    cli::cli_text("")
     results[[dim]] <- wp_sorted
   }
 

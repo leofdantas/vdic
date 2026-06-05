@@ -1267,13 +1267,7 @@ vectionary_builder <- function(
     hunspell_dict <- .get_hunspell_dict(language, verbose)
   }
 
-  # Two code paths: data.table (fast, in-memory) vs base R (streaming, low memory).
-  # data.table loads the entire file at once (~2 GB), which is much faster but
-  # requires enough RAM. The streaming fallback processes line-by-line.
-  has_dt <- requireNamespace("data.table", quietly = TRUE)
-
-  if (has_dt) {
-    # ── Fast path: data.table (loads entire file into memory) ──
+  # Load the whole embeddings file into memory with data.table, then filter it.
     header <- .parse_embeddings_header(readLines(embeddings_path, n = 1, warn = FALSE))
     n_dims <- header$n_dims
     skip_rows <- if (header$is_header) 1L else 0L
@@ -1380,102 +1374,6 @@ vectionary_builder <- function(
       cli_alert_success("Filtered vocabulary: {n_total} -> {length(words)} words")
     }
 
-  } else {
-    # ── Streaming fallback (base R) ──
-    if (use_spellcheck) {
-      stop("Package 'data.table' is required for spellcheck = TRUE. ",
-           "Install it with: install.packages('data.table')")
-    }
-
-    stopwords_set <- if (use_stopwords) tolower(stopwords) else character(0)
-
-    # Strategy: write the filtered word vectors to a body temp file (no header),
-    # then create the final file by writing the header line + copying the body.
-    # This avoids needing a second pass over the entire file just to count lines
-    # for the header, since we don't know the final word count until streaming ends.
-    body_path <- tempfile(fileext = ".body")
-    filtered_path <- tempfile(fileext = ".vec")
-
-    con_in <- file(embeddings_path, "r", encoding = "UTF-8")
-    con_body <- file(body_path, "w", encoding = "UTF-8")
-    on.exit({ close(con_in); close(con_body) }, add = TRUE)
-
-    # Parse header
-    first_line <- readLines(con_in, n = 1, warn = FALSE)
-    header <- .parse_embeddings_header(first_line)
-
-    n_kept <- 0
-    n_dims_out <- header$n_dims
-    seen_words <- character(0)  # Track seen words for case-variant deduplication
-
-    # Process first line if not a header
-    if (!header$is_header && length(header$parts) > 2) {
-      word <- tolower(header$parts[1])
-      if (grepl("^\\p{L}+$", word, perl = TRUE) && !(word %in% stopwords_set)) {
-        header$parts[1] <- word
-        writeLines(paste(header$parts, collapse = " "), con_body)
-        seen_words <- c(seen_words, word)
-        n_kept <- n_kept + 1
-      }
-    }
-
-    # Stream through file
-    chunk_size <- 50000
-    lines_read <- 0
-
-    if (verbose) {
-      cli_alert_info("Streaming and filtering embeddings (stopwords only, no spellcheck)...")
-    }
-
-    repeat {
-      lines <- readLines(con_in, n = chunk_size, warn = FALSE)
-      if (length(lines) == 0) break
-      lines_read <- lines_read + length(lines)
-
-      for (line in lines) {
-        if (nchar(trimws(line)) == 0) next
-        space_pos <- regexpr(" ", line, fixed = TRUE)
-        if (space_pos < 1) next
-        word <- tolower(substr(line, 1, space_pos - 1))
-        if (!grepl("^\\p{L}+$", word, perl = TRUE)) next
-        if (word %in% stopwords_set) next
-        if (word %in% seen_words) next  # Deduplicate case variants
-
-        # Rewrite with lowercase word
-        rest <- substr(line, space_pos, nchar(line))
-        writeLines(paste0(word, rest), con_body)
-        seen_words <- c(seen_words, word)
-        n_kept <- n_kept + 1
-      }
-
-      if (verbose && lines_read %% 500000 == 0) {
-        cli_alert_info("Processed {lines_read} lines, kept {n_kept} words")
-      }
-    }
-
-    # Close connections (the on.exit handler becomes a harmless no-op)
-    close(con_in)
-    close(con_body)
-
-    # Assemble final file: write the FastText-style header ("N_words N_dims"),
-    # then copy the body file contents in chunks. This produces a valid .vec
-    # file that downstream functions can parse with .parse_embeddings_header().
-    con_out <- file(filtered_path, "w", encoding = "UTF-8")
-    writeLines(paste(n_kept, n_dims_out), con_out)
-
-    con_body_in <- file(body_path, "r", encoding = "UTF-8")
-    while (length(chunk <- readLines(con_body_in, n = chunk_size, warn = FALSE)) > 0) {
-      writeLines(chunk, con_out)
-    }
-    close(con_body_in)
-    close(con_out)
-    unlink(body_path)
-
-    if (verbose) {
-      cli_alert_success("Filtered vocabulary: {lines_read} -> {n_kept} words (stopwords removed)")
-    }
-  }
-
   return(filtered_path)
 }
 
@@ -1484,8 +1382,8 @@ vectionary_builder <- function(
 #'
 #' @description
 #' Reads the embeddings file and computes projections for ALL words onto the
-#' learned axes. Uses data.table::fread() for fast parsing when available,
-#' with fallback to base R streaming for large files.
+#' learned axes. Uses data.table::fread() to load and project the full
+#' vocabulary in one pass.
 #'
 #' This replicates the Duan et al. (2025) approach where the vectionary can
 #' score any word in the vocabulary.
@@ -1499,20 +1397,6 @@ vectionary_builder <- function(
 #'
 #' @keywords internal
 .project_all_embeddings <- function(axes, dimensions, embeddings_path, verbose = TRUE) {
-
-  # Dispatch to fast (data.table) or streaming (base R) implementation.
-  # Both produce identical results; the choice is purely about performance.
-  if (requireNamespace("data.table", quietly = TRUE)) {
-    return(.project_all_embeddings_fast(axes, dimensions, embeddings_path, verbose))
-  }
-  return(.project_all_embeddings_streaming(axes, dimensions, embeddings_path, verbose))
-}
-
-
-#' Fast projection using data.table::fread (5-10x faster)
-#'
-#' @keywords internal
-.project_all_embeddings_fast <- function(axes, dimensions, embeddings_path, verbose = TRUE) {
 
   header <- .parse_embeddings_header(readLines(embeddings_path, n = 1, warn = FALSE))
   n_dims <- header$n_dims
@@ -1567,128 +1451,6 @@ vectionary_builder <- function(
   }
 
   # Build result data frame
-  result <- data.frame(word = words, stringsAsFactors = FALSE)
-  for (i in seq_along(dimensions)) {
-    result[[dimensions[i]]] <- proj_matrix[, i]
-  }
-
-  return(result)
-}
-
-
-#' Streaming projection fallback (for systems without data.table)
-#'
-#' @keywords internal
-.project_all_embeddings_streaming <- function(axes, dimensions, embeddings_path, verbose = TRUE) {
-
-  if (verbose) {
-    cli_alert_info("Using streaming projection (install data.table for 5-10x speedup)")
-  }
-
-  # ── Chunk-based collection strategy ──
-  # Collect results as lists of chunks, then combine once at the end with
-  # unlist() / do.call(rbind, ...). This is O(n) total cost.
-  # The naive alternative — growing vectors with c() on each line — is O(n^2)
-  # because R copies the entire vector on each append.
-  words_list <- list()   # list of character vectors (one per chunk)
-  proj_list  <- list()   # list of projection matrices (one per chunk)
-  chunk_idx  <- 0L
-
-  # Open file connection
-  con <- file(embeddings_path, "r", encoding = "UTF-8")
-  on.exit(close(con))
-
-  # Parse header
-  first_line <- readLines(con, n = 1, warn = FALSE)
-  header <- .parse_embeddings_header(first_line)
-
-  if (header$is_header) {
-    if (verbose) {
-      cli_alert_info("Embeddings: {header$parts[1]} words, {header$n_dims} dimensions")
-    }
-  } else {
-    # First line is a word vector — process it
-    if (length(header$parts) > 2) {
-      vector_vals <- as.numeric(header$parts[-1])
-      if (!any(is.na(vector_vals))) {
-        vector_vals <- .unit_norm(vector_vals)
-        chunk_idx <- chunk_idx + 1L
-        words_list[[chunk_idx]] <- header$parts[1]  # already lowercase from filter
-        proj_list[[chunk_idx]] <- matrix(vector_vals, nrow = 1) %*%
-          do.call(cbind, axes[dimensions])
-      }
-    }
-  }
-
-  # Build axis matrix for faster projection
-  axis_matrix <- do.call(cbind, axes[dimensions])
-
-  # Process remaining lines in chunks
-  lines_read <- 0
-  chunk_size <- 50000
-  words_processed <- if (chunk_idx > 0) 1L else 0L
-
-  if (verbose) {
-    cli_alert_info("Projecting all embeddings onto {length(dimensions)} axes...")
-  }
-
-  repeat {
-    lines <- readLines(con, n = chunk_size, warn = FALSE)
-    if (length(lines) == 0) break
-
-    lines_read <- lines_read + length(lines)
-
-    # Pre-allocate for this chunk
-    chunk_words <- character(length(lines))
-    chunk_vectors <- vector("list", length(lines))
-    valid_count <- 0
-
-    for (i in seq_along(lines)) {
-      line <- lines[i]
-      if (nchar(trimws(line)) == 0) next
-
-      parts <- strsplit(line, " ", fixed = TRUE)[[1]]
-      if (length(parts) < 3) next
-
-      vector_vals <- suppressWarnings(as.numeric(parts[-1]))
-
-      if (!any(is.na(vector_vals))) {
-        valid_count <- valid_count + 1
-        chunk_words[valid_count] <- parts[1]  # already lowercase from filter
-        chunk_vectors[[valid_count]] <- vector_vals
-      }
-    }
-
-    # Vectorized projection for entire chunk at once (matrix multiply)
-    if (valid_count > 0) {
-      chunk_words <- chunk_words[1:valid_count]
-      chunk_matrix <- do.call(rbind, chunk_vectors[1:valid_count])
-
-      # Unit-normalize to match axis learning normalization
-      row_norms <- sqrt(rowSums(chunk_matrix^2))
-      row_norms[row_norms == 0] <- 1
-      chunk_matrix <- chunk_matrix / row_norms
-
-      # Store this chunk's results (combined later)
-      chunk_idx <- chunk_idx + 1L
-      words_list[[chunk_idx]] <- chunk_words
-      proj_list[[chunk_idx]]  <- chunk_matrix %*% axis_matrix
-      words_processed <- words_processed + valid_count
-    }
-
-    if (verbose && lines_read %% 500000 == 0) {
-      cli_alert_info("Processed {lines_read} lines, {words_processed} words projected")
-    }
-  }
-
-  if (verbose) {
-    cli_alert_success("Projected {words_processed} words onto all axes")
-  }
-
-  # Combine all chunks into final vectors/matrix in a single pass
-  words <- unlist(words_list, use.names = FALSE)
-  proj_matrix <- do.call(rbind, proj_list)  # stacks chunk matrices vertically
-
   result <- data.frame(word = words, stringsAsFactors = FALSE)
   for (i in seq_along(dimensions)) {
     result[[dimensions[i]]] <- proj_matrix[, i]

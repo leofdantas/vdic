@@ -161,7 +161,7 @@
         error = function(e) NULL
       )
 
-      if (is.null(cv_result)) 0.1 else cv_result$lambda.min
+      if (is.null(cv_result)) 0.1 else cv_result$lambda.1se
     }, numeric(1L))
 
     lambda <- stats::median(lambdas_per_dim)
@@ -178,10 +178,7 @@
       names(scores) <- dictionary$word
       y  <- as.numeric(scores[words])
       ok <- !is.na(y)
-      gcv_vals <- vapply(lambda_range, function(lam) {
-        .gcv_select_lambda(emb_matrix[ok, , drop = FALSE], y[ok])
-      }, numeric(1L))
-      lambda_range[which.min(gcv_vals)]
+      .gcv_select_lambda(emb_matrix[ok, , drop = FALSE], y[ok], lambda_seq = lambda_range)
     }, numeric(1L))
     lambda <- stats::median(lambdas_per_dim)
   }

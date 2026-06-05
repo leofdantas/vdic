@@ -349,10 +349,12 @@ analyze_image <- function(
   }
 
   # Use [[ to bypass the custom $ dispatcher — old vectionaries lack modality
-  if (is.null(vect[["modality"]]) || vect[["modality"]] != "multimodal") {
+  mod <- vect[["modality"]]
+  if (is.null(mod)) mod <- "text"
+  if (mod != "multimodal") {
     stop(
       "analyze_image() requires a multi-modal vectionary.\n",
-      "Current vectionary has modality: '", vect[["modality"]] %||% "text", "'\n\n",
+      "Current vectionary has modality: '", mod, "'\n\n",
       "Build one with:\n",
       "  vectionary_builder(..., modality = 'multimodal')"
     )
@@ -500,7 +502,8 @@ analyze_text <- function(
     stop("text must be a non-empty character vector")
   }
 
-  modality <- vect[["modality"]] %||% "text"
+  modality <- vect[["modality"]]
+  if (is.null(modality)) modality <- "text"
 
   if (modality == "multimodal") {
 

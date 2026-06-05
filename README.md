@@ -100,10 +100,10 @@ my_vect$metrics("We need to protect vulnerable citizens from harm")
 #> [1] 0.7863876
 # $mean$fairness
 #> [1] 0.6470454
-# $mse
-# $mse$care
+# $msp
+# $msp$care
 # [1] 0.818471
-# $mse$fairness
+# $msp$fairness
 # [1] 0.6846322
 # $sd
 # $sd$care
@@ -170,7 +170,7 @@ as.data.frame(result)
 
 **Notes:**
 - Requires at least 2 documents (a single text produces a warning and skips classification)
-- Works with any single metric (`"mean"`, `"mse"`, `"sd"`, `"se"`, `"top_10"`, `"top_20"`)
+- Works with any single metric (`"mean"`, `"msp"`, `"sd"`, `"se"`, `"top_10"`, `"top_20"`)
 - When `metric = "all"`, topic flags are stored in `result$topic` (a named list)
 - Lower `alpha` values (e.g., 0.01) produce stricter thresholds; higher values (e.g., 0.10) are more lenient
 
@@ -198,7 +198,7 @@ Each vec-tionary object exposes the following methods via the `$` operator:
 | Method | Description |
 |--------|-------------|
 | `$mean(text)` | Arithmetic mean of word projections |
-| `$mse(text)` | Mean square error |
+| `$msp(text)` | Mean square projection |
 | `$sd(text)` | Standard deviation of projections |
 | `$se(text)` | Standard error of the mean |
 | `$top_10(text)` | Mean of 10 highest projections |

@@ -142,10 +142,10 @@ a semantic axis \eqn{m \in \mathbb{R}^d}:
 
 \strong{Projection.}
 All word embeddings are normalized to unit Euclidean norm before axis
-learning and projection.
-A word's score is the dot product \eqn{\hat{w}_j^\top m}, which equals
-\eqn{\|m\| \cos\theta_j} -- cosine similarity scaled by the axis
-magnitude.
+learning and projection, and the learned axis \eqn{m} is itself
+unit-normalized after solving. A word's score is therefore the dot product
+\eqn{\hat{w}_j^\top m = \cos\theta_j} -- a pure cosine similarity in
+\eqn{[-1, 1]}.
 
 \strong{Topic classification.}
 When \code{alpha} is passed to [vectionary_analyze()], documents are

@@ -339,7 +339,7 @@ Custom embeddings in `.vec` or `.txt` format (word followed by space-separated v
 ## Technical Details
 
 - All word embeddings are **normalized to unit Euclidean norm** before axis learning and projection. This removes magnitude bias from FastText/word2vec (frequent words have inflated norms) and makes projections cosine-similarity-based.
-- Ridge/elastic net/lasso axes are **not** unit-normalized -- their raw regression scale encodes the mapping from cosine similarity to dictionary scores.
+- All learned axes (ridge, elastic net, lasso, and Duan) are **unit-normalized** after solving, so a word's projection is a pure cosine similarity in $[-1, 1]$.
 - The Duan et al. (2025) method uses constrained optimization (`alabama::auglag`) with a unit-norm axis constraint and no regularization.
 - Non-alphabetic tokens (numbers, codes, symbols) are **always** filtered from the embedding vocabulary using Unicode-aware regex (`\p{L}`), supporting accented characters and non-Latin scripts.
 - Case-variant duplicates (e.g., "Gás" and "gás") are deduplicated during filtering, keeping the first occurrence (highest-frequency vector in FastText).

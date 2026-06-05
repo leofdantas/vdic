@@ -76,8 +76,10 @@ more zero coefficients. Ignored for method="ridge" or "lasso".}
 
 \item{lambda}{Regularization parameter. Can be:
 \itemize{
-  \item "gcv" (default): Use Generalized Cross-Validation (Golub et al., 1979) to select
-    optimal lambda. Only works with method="ridge".
+  \item "gcv" (default): Automatically select the optimal lambda. For
+    method="ridge", uses closed-form Generalized Cross-Validation (Golub et al.,
+    1979); for method="elastic_net"/"lasso", dispatches to glmnet
+    cross-validation (cv.glmnet). Ignored for method="duan".
   \item Numeric value (e.g., 0.5): Use this specific lambda
   \item Numeric vector (e.g., c(0.01, 0.1, 1)): Test these values and select optimal
 }

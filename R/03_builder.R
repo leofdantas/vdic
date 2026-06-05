@@ -18,7 +18,7 @@
 #                                                                             
 #   All word embeddings are unit-normalized before axis learning so that      
 #   projections are cosine-similarity-based rather than magnitude-biased.     
-#   Axes are NOT unit-normalized — their scale encodes dictionary scores.     
+#   Learned axes are ALSO unit-normalized, so projections are pure cosine sim.
 # ==============================================================================
 
 #' Build a vec-tionary from dictionary and embeddings
@@ -73,8 +73,10 @@
 #'   more zero coefficients. Ignored for method="ridge" or "lasso".
 #' @param lambda Regularization parameter. Can be:
 #'   \itemize{
-#'     \item "gcv" (default): Use Generalized Cross-Validation (Golub et al., 1979) to select
-#'       optimal lambda. Only works with method="ridge".
+#'     \item "gcv" (default): Automatically select the optimal lambda. For
+#'       method="ridge", uses closed-form Generalized Cross-Validation (Golub et al.,
+#'       1979); for method="elastic_net"/"lasso", dispatches to glmnet
+#'       cross-validation (cv.glmnet). Ignored for method="duan".
 #'     \item Numeric value (e.g., 0.5): Use this specific lambda
 #'     \item Numeric vector (e.g., c(0.01, 0.1, 1)): Test these values and select optimal
 #'   }
@@ -743,7 +745,7 @@ vectionary_builder <- function(
       image_projections = NULL,  # Only populated for multimodal vectionaries
       dimensions = dimensions,
       modality = "text",
-      embedding_dim = length(result$axes[[1]]),  # Auto-detect from axes (300 for word2vec, 1536 for SigLIP 2)
+      embedding_dim = length(result$axes[[1]]),  # Auto-detect from axes (word-embedding dim, e.g. 300 for FastText/word2vec)
       metadata = list(
         method = method,
         l1_ratio = if (method == "elastic_net") l1_ratio else if (method == "lasso") 1.0 else NULL,
@@ -1557,7 +1559,7 @@ vectionary_builder <- function(
 
   # Single matrix multiply projects all words onto all axes at once.
   # Result shape: (n_words x n_axes). Each cell is the dot product of a
-  # unit-norm word embedding with a (non-unit-norm) learned axis.
+  # unit-norm word embedding with a unit-norm learned axis = cosine similarity.
   proj_matrix <- embed_matrix %*% axis_matrix
 
   if (verbose) {
@@ -2841,7 +2843,7 @@ vectionary_builder <- function(
   # FastText word norms correlate with word frequency — frequent words have
   # inflated norms that dominate raw dot products. Unit-normalizing moves all
   # vectors to the unit sphere, so projections become cosine-similarity-based.
-  # The axis is NOT unit-normalized (its magnitude encodes dictionary score scale).
+  # The axis is also unit-normalized, but later, inside the .solve_axis_* functions.
   word_vectors <- lapply(word_vectors, .unit_norm)
 
   # Not all dictionary words exist in the embeddings (misspellings, rare words)

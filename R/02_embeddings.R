@@ -126,9 +126,9 @@ download_embeddings <- function(
     url <- "https://huggingface.co/LoganKilpatrick/GoogleNews-vectors-negative300/resolve/main/GoogleNews-vectors-negative300.bin.gz"
     filename <- "GoogleNews-vectors-negative300.bin.gz"
     if (language == "pt") {
-      # Using PT2Vec
+      # PT2Vec: distributed as a ZIP containing dataset.txt (text .vec format)
       url <- "http://pt2vec.inesctec.pt/files/dataset.zip"
-      filename <- "PT2Vec-300.bin.gz"
+      filename <- "PT2Vec-300.zip"
     }
 
   } else if (model == "glove") {
@@ -219,7 +219,7 @@ download_embeddings <- function(
     return(decompressed_file)
   }
 
-  # Handle zip files (for GloVe)
+  # Handle zip files (PT2Vec and GloVe)
   if (grepl("\\.zip$", dest_file)) {
     cli_progress_step("Extracting archive", spinner = TRUE)
     unzip(dest_file, exdir = destination)
@@ -227,7 +227,16 @@ download_embeddings <- function(
 
     cli_alert_success("Extracted to: {.path {destination}}")
 
-    # Return path to specific dimension file
+    # PT2Vec: ZIP contains dataset.txt, already in text .vec format
+    if (model == "word2vec" && language == "pt") {
+      raw_file <- file.path(destination, "dataset.txt")
+      vec_file <- file.path(destination, "PT2Vec-300.vec")
+      if (file.exists(raw_file)) file.rename(raw_file, vec_file)
+      cli_alert_info("Saved to: {.path {vec_file}}")
+      return(vec_file)
+    }
+
+    # GloVe: return path to specific dimension file
     extracted_file <- file.path(destination, sprintf("glove.6B.%dd.txt", dimensions))
     if (file.exists(extracted_file)) {
       return(extracted_file)

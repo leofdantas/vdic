@@ -32,8 +32,10 @@
 #' as a compressed RDS).
 #'
 #' @param dictionary Either a data frame or a character vector of words.
-#'   - **Data frame**: Must have a 'word' column plus one or more dimension columns
-#'     (e.g., 'care', 'fairness', 'sentiment'). ALL words are used to learn axes.
+#'   - **Data frame**: A 'word' column plus one or more numeric dimension columns
+#'     (e.g., 'care', 'fairness', 'sentiment'); ALL words are used to learn axes. A
+#'     data frame with only a 'word' column is read as a binary list (every word
+#'     scores 1), the same as a character vector.
 #'   - **Character vector**: A simple list of seed words. Creates a binary dictionary
 #'     where all words score 1 on each dimension specified (or "score" if dimensions=NULL).
 #' @param embeddings Path to word embeddings file. Can be FastText .vec format,
@@ -218,39 +220,17 @@ vectionary_builder <- function(
   #   2. Data frame with 'word' column + numeric dimension columns
   # Both are validated and normalized before entering the pipeline.
 
-  ##- Handle character vector input ----
-  # Convert character vector to binary data frame where every word scores 1
-  # on each requested dimension. This is a convenience shorthand for users
-  # who just have a word list without graded scores.
-  if (is.character(dictionary)) {
-    if (length(dictionary) == 0) {
-      stop("dictionary cannot be empty")
-    }
-
-    # Determine dimension names
-    if (is.null(dimensions)) {
-      dim_names <- "score"
-    } else {
-      dim_names <- dimensions
-    }
-
-    # Create data frame with all words scoring 1 on each dimension
-    dictionary <- data.frame(word = dictionary, stringsAsFactors = FALSE)
-    for (dim in dim_names) {
-      dictionary[[dim]] <- 1
-    }
-
-    if (verbose) {
-      cli_alert_info("Converted character vector to binary dictionary with {length(dim_names)} dimension{?s}: {paste(dim_names, collapse = ', ')}")
-    }
-  }
-
-  if (!is.data.frame(dictionary)) {
-    stop("dictionary must be a data frame or character vector")
-  }
-
-  if (!"word" %in% names(dictionary)) {
-    stop("dictionary must have a 'word' column")
+  ##- Normalize dictionary input (shared with the construct-side tools) ----
+  # A character vector (or a word-only data.frame) becomes a binary list: every word
+  # scores 1 on each requested dimension (default "score"). Graded data.frames pass
+  # through. Same .as_dictionary_df() front door as dictionary_eval()/dictionary_suggest().
+  was_list <- is.character(dictionary) || is.factor(dictionary) ||
+    (is.data.frame(dictionary) && length(setdiff(names(dictionary), "word")) == 0)
+  dictionary <- .as_dictionary_df(dictionary,
+                                  dim_names = if (is.null(dimensions)) "score" else dimensions)
+  if (verbose && was_list) {
+    dim_names <- setdiff(names(dictionary), "word")
+    cli_alert_info("Read a plain word list as a binary dictionary with {length(dim_names)} dimension{?s}: {paste(dim_names, collapse = ', ')}")
   }
   ##- Validate dictionary words ----
   # Dictionary words must be single tokens (no spaces), free of punctuation

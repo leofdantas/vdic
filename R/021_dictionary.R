@@ -84,17 +84,41 @@
   if (!is.matrix(embeddings) || is.null(rownames(embeddings)))
     cli_abort(c("{.arg embeddings} must be a matrix with rownames (the vocabulary), or a path to a FastText {.file .vec} / GloVe or word2vec {.file .txt} file.",
       "i" = "Pass the file path directly, or load it (e.g. with {.fn data.table::fread}) and set the word column as rownames."))
+  # fread coerces tokens matching data.table's na.strings (e.g. the literal "NA") to NA
+  # in the word column; drop any NA-word row -- it cannot match a seed, and such tokens
+  # are stopwords dropped downstream anyway.
+  na_word <- is.na(rownames(embeddings))
+  if (any(na_word)) embeddings <- embeddings[!na_word, , drop = FALSE]
   embeddings / sqrt(rowSums(embeddings^2))
 }
 
 # Dictionary -> one-dimension seed table (word, score, stem). Stems ending in "*"
 # are expanded against the vocabulary; words kept only if their sign is consistent.
-.dict_seed_df <- function(dictionary, dimension, vocab) {
+# Normalize a dictionary argument to a data.frame with a `word` column and >= 1
+# dimension column -- the shared front door for dictionary_eval(), dictionary_suggest(),
+# and vectionary_builder(), so every entry reads the same inputs. A character vector (or
+# factor), or a data.frame with only a `word` column, is a BINARY list: each word scores
+# 1 on every requested dimension (default "score"). A graded data.frame passes through.
+.as_dictionary_df <- function(dictionary, dim_names = "score") {
+  if (is.character(dictionary) || is.factor(dictionary)) {
+    if (length(dictionary) == 0) cli_abort("{.arg dictionary} cannot be empty.")
+    dictionary <- data.frame(word = as.character(dictionary), stringsAsFactors = FALSE)
+    for (nm in dim_names) dictionary[[nm]] <- 1
+    return(dictionary)
+  }
   if (!is.data.frame(dictionary) || !"word" %in% names(dictionary))
-    cli_abort("{.arg dictionary} must be a data.frame with a {.field word} column.")
+    cli_abort(c("{.arg dictionary} must be a data.frame with a {.field word} column, or a character vector of words.",
+      "i" = "A character vector (or a {.field word}-only data.frame) is read as a binary list; add numeric column(s) for a graded dictionary."))
+  if (length(setdiff(names(dictionary), "word")) == 0)   # word-only -> binary list
+    for (nm in dim_names) dictionary[[nm]] <- 1
+  dictionary
+}
+
+.dict_seed_df <- function(dictionary, dimension, vocab) {
+  # Accept a character vector / word-only data.frame (binary) or a graded data.frame --
+  # the same front door vectionary_builder() uses.
+  dictionary <- .as_dictionary_df(dictionary)
   dim_cols <- setdiff(names(dictionary), "word")
-  if (length(dim_cols) == 0)
-    cli_abort("{.arg dictionary} needs a numeric dimension column besides {.field word}.")
   if (is.null(dimension)) {
     if (length(dim_cols) > 1)
       cli_abort(c("{.arg dictionary} has several dimensions; choose one with {.arg dimension}.",
@@ -156,10 +180,13 @@
 #' crowd (the per-pole figures are returned as \code{auc_pos} / \code{auc_neg}).
 #'
 #' @param dictionary A data.frame with a \code{word} column and one or more numeric
-#'   dimension columns (the same format \code{\link{vectionary_builder}} accepts).
-#'   The \strong{sign} of the scores sets the poles: a mix of positive and negative
-#'   scores is treated as bipolar; a single sign is unipolar. Words ending in
-#'   \code{"*"} are treated as stems and expanded against the vocabulary.
+#'   dimension columns (the same format \code{\link{vectionary_builder}} accepts), or a
+#'   plain character vector of words. A character vector -- or a data.frame with only a
+#'   \code{word} column -- is read as a \strong{binary} list: every word scores 1
+#'   (unipolar). For a graded dictionary, include numeric column(s): the \strong{sign}
+#'   of the scores sets the poles (a mix of positive and negative is bipolar, a single
+#'   sign unipolar). Words ending in \code{"*"} are treated as stems and expanded
+#'   against the vocabulary.
 #' @param embeddings Either a numeric matrix with one row per word and \code{rownames}
 #'   equal to the vocabulary, or a path to an embeddings file (FastText \code{.vec},
 #'   GloVe or word2vec \code{.txt}). A path is read with the builder's header-aware

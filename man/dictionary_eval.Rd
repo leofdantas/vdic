@@ -40,8 +40,9 @@ dictionary has more than one dimension column.}
 }
 \value{
 An object of class \code{"dictionary_eval"}: a list with \code{card},
-  \code{checks}, and \code{influential} data frames plus metadata. It prints a
-  formatted report card.
+  \code{checks}, and \code{influential} data frames, the per-pole separation AUCs
+  \code{auc_pos} / \code{auc_neg} (both \code{NA} for a unipolar dimension), plus
+  metadata. It prints a formatted report card.
 }
 \description{
 Describes a seed word list as a measurement axis, using only cosine similarity
@@ -54,6 +55,15 @@ This is a \strong{construct-side} diagnostic: it judges the WORD LIST (is it tig
 one-dimensional, distinctive, separable, unconfounded?), not whether the eventual
 axis scores documents correctly. Run it \emph{before} \code{\link{vectionary_builder}}
 to curate the seeds.
+}
+\details{
+The Separation (AUC) check asks whether the reference axis ranks the seed words at
+the extremes of the whole vocabulary. For a \strong{unipolar} dimension it is the
+probability that a random seed outranks a random non-seed. For a \strong{bipolar}
+dimension both poles are tested against a seed-excluded background -- the high pole
+should rank above it, the low pole below it -- and the reported value is the
+\emph{weaker} of the two, so a sharp high pole cannot mask a low pole lost in the
+crowd (the per-pole figures are returned as \code{auc_pos} / \code{auc_neg}).
 }
 \examples{
 \dontrun{

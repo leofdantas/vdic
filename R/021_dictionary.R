@@ -40,6 +40,14 @@
 # Distinctiveness = how little the axis overlaps the generic direction of language.
 .distinctiveness <- function(ax, generic) 1 - abs(sum((ax / sqrt(sum(ax^2))) * generic))
 
+# Separation = one-sided AUC: P(a random "hi" word outranks a random "lo" word),
+# the Wilcoxon-Mann-Whitney statistic. NA when either group is empty.
+.auc_one <- function(proj, hi, lo) {
+  if (sum(hi) < 1 || sum(lo) < 1) return(NA_real_)
+  rk <- rank(c(proj[hi], proj[lo])); n_hi <- sum(hi)
+  (sum(rk[seq_len(n_hi)]) - n_hi * (n_hi + 1) / 2) / (n_hi * sum(lo))
+}
+
 # Plain-language verdict bands (effect sizes, NOT p-values: with a ~400k-word
 # vocabulary even a trivial correlation tests as "significant").
 .auc_band <- function(a)
@@ -121,6 +129,15 @@
 #' axis scores documents correctly. Run it \emph{before} \code{\link{vectionary_builder}}
 #' to curate the seeds.
 #'
+#' @details
+#' The Separation (AUC) check asks whether the reference axis ranks the seed words at
+#' the extremes of the whole vocabulary. For a \strong{unipolar} dimension it is the
+#' probability that a random seed outranks a random non-seed. For a \strong{bipolar}
+#' dimension both poles are tested against a seed-excluded background -- the high pole
+#' should rank above it, the low pole below it -- and the reported value is the
+#' \emph{weaker} of the two, so a sharp high pole cannot mask a low pole lost in the
+#' crowd (the per-pole figures are returned as \code{auc_pos} / \code{auc_neg}).
+#'
 #' @param dictionary A data.frame with a \code{word} column and one or more numeric
 #'   dimension columns (the same format \code{\link{vectionary_builder}} accepts).
 #'   The \strong{sign} of the scores sets the poles: a mix of positive and negative
@@ -136,8 +153,9 @@
 #' @param seed Random seed for the baseline draws (default 574), for reproducibility.
 #'
 #' @return An object of class \code{"dictionary_eval"}: a list with \code{card},
-#'   \code{checks}, and \code{influential} data frames plus metadata. It prints a
-#'   formatted report card.
+#'   \code{checks}, and \code{influential} data frames, the per-pole separation AUCs
+#'   \code{auc_pos} / \code{auc_neg} (both \code{NA} for a unipolar dimension), plus
+#'   metadata. It prints a formatted report card.
 #'
 #' @seealso \code{\link{dictionary_suggest}} to propose words to add or remove,
 #'   \code{\link{vectionary_builder}} to learn the axis once the list is curated.
@@ -210,10 +228,22 @@ dictionary_eval <- function(dictionary, embeddings, dimension = NULL,
 
   # the two checks
   proj_all <- as.numeric(E %*% a0)
-  is_seed  <- vocab %in% (if (bipolar) seed_df$word[pos] else seed_df$word)
-  rk       <- rank(proj_all)
-  auc      <- (sum(rk[is_seed]) - sum(is_seed) * (sum(is_seed) + 1) / 2) /
-              (sum(is_seed) * sum(!is_seed))
+  # Separation (AUC): seeds should sit at the extreme(s) of the axis vs. the rest of
+  # the vocabulary. A bipolar axis runs low -> high, so test BOTH poles against a
+  # clean background (all seeds excluded) and gate on the weaker pole -- a crisp high
+  # pole must not hide a low pole lost in the crowd. Unipolar: one seeds-vs-rest test.
+  if (bipolar) {
+    is_pos  <- vocab %in% seed_df$word[pos]
+    is_neg  <- vocab %in% seed_df$word[neg]
+    is_bg   <- !(is_pos | is_neg)
+    auc_pos <- .auc_one(proj_all, is_pos, is_bg)   # high pole should rank ABOVE background
+    auc_neg <- .auc_one(proj_all, is_bg, is_neg)   # background should rank ABOVE low pole
+    auc     <- min(auc_pos, auc_neg, na.rm = TRUE) # the weaker pole governs
+  } else {
+    is_seed <- vocab %in% seed_df$word
+    auc_pos <- auc_neg <- NA_real_
+    auc     <- .auc_one(proj_all, is_seed, !is_seed)
+  }
   # frequency confound assumes rows are frequency-sorted (as GloVe is); if the
   # vocabulary is alphabetical the file carries no frequency info -> report NA.
   cor_freq <- if (is.unsorted(vocab)) cor(proj_all, seq_len(nrow(E)), method = "spearman") else NA
@@ -245,6 +275,7 @@ dictionary_eval <- function(dictionary, embeddings, dimension = NULL,
 
   structure(list(
     card = card, checks = checks, influential = influential,
+    auc_pos = auc_pos, auc_neg = auc_neg,
     dimension = dimension, bipolar = bipolar, n_random = n_random,
     n_seed = nrow(seed_df), n_pos = sum(pos), n_neg = sum(neg),
     n_stems_matched = length(stems), n_stems_total = attr(seed_df, "n_total_stems")),
@@ -289,6 +320,11 @@ print.dictionary_eval <- function(x, ...) {
       watch = cli_alert_warning("{msg}"),
       na    = cli_alert_info("{msg}"),
       bad   = cli_alert_danger("{msg}"))
+  }
+  if (isTRUE(x$bipolar) && is.finite(x$auc_pos) && is.finite(x$auc_neg)) {
+    weak <- if (x$auc_neg <= x$auc_pos) "low" else "high"
+    cli_text(
+      "{.emph Separation by pole}: high = {format(round(x$auc_pos, 3), nsmall = 3)}, low = {format(round(x$auc_neg, 3), nsmall = 3)} (Separation (AUC) above reports the weaker {weak} pole)")
   }
   cli_text("")
   cli_text("{.emph Separation (AUC)}: <0.4 worse than random | 0.4-0.6 near chance | 0.6-0.7 weak | 0.7-0.8 acceptable | >=0.8 strong")

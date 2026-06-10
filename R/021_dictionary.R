@@ -64,9 +64,26 @@
 # Embeddings -> unit-normalized matrix (rownames = vocabulary). Re-normalizing an
 # already-unit matrix is a no-op, so it is always safe to call.
 .resolve_embeddings <- function(embeddings) {
+  # A file path -> read it the way the builder does: detect/skip a FastText header
+  # with .parse_embeddings_header() (R/03_builder.R), then fread only the n_dims value
+  # columns, so a trailing space cannot leak an extra all-NA column.
+  if (is.character(embeddings) && length(embeddings) == 1L) {
+    if (!file.exists(embeddings))
+      cli_abort("Embeddings file not found: {.path {embeddings}}")
+    if (!requireNamespace("data.table", quietly = TRUE))
+      cli_abort(c("{.pkg data.table} is required to read an embeddings file path.",
+        "i" = "Install it, or pass a pre-loaded matrix to {.arg embeddings}."))
+    header <- .parse_embeddings_header(readLines(embeddings, n = 1, warn = FALSE))
+    dt <- data.table::fread(
+      embeddings, header = FALSE, skip = if (header$is_header) 1L else 0L,
+      sep = " ", quote = "", colClasses = c("character", rep("numeric", header$n_dims)),
+      showProgress = FALSE, data.table = TRUE)
+    embeddings <- as.matrix(dt[, 2:(header$n_dims + 1), with = FALSE])
+    rownames(embeddings) <- dt[[1]]
+  }
   if (!is.matrix(embeddings) || is.null(rownames(embeddings)))
-    cli_abort(c("{.arg embeddings} must be a matrix with rownames (the vocabulary).",
-      "i" = "Load a .vec/.txt file (e.g. with {.fn data.table::fread}) and set the word column as rownames."))
+    cli_abort(c("{.arg embeddings} must be a matrix with rownames (the vocabulary), or a path to a FastText {.file .vec} / GloVe or word2vec {.file .txt} file.",
+      "i" = "Pass the file path directly, or load it (e.g. with {.fn data.table::fread}) and set the word column as rownames."))
   embeddings / sqrt(rowSums(embeddings^2))
 }
 
@@ -143,9 +160,11 @@
 #'   The \strong{sign} of the scores sets the poles: a mix of positive and negative
 #'   scores is treated as bipolar; a single sign is unipolar. Words ending in
 #'   \code{"*"} are treated as stems and expanded against the vocabulary.
-#' @param embeddings A numeric matrix with one row per word and \code{rownames} equal
-#'   to the vocabulary. Rows are unit-normalized internally, so dot products are
-#'   cosine similarities.
+#' @param embeddings Either a numeric matrix with one row per word and \code{rownames}
+#'   equal to the vocabulary, or a path to an embeddings file (FastText \code{.vec},
+#'   GloVe or word2vec \code{.txt}). A path is read with the builder's header-aware
+#'   loader, so a FastText header line is detected and skipped automatically. Rows are
+#'   unit-normalized internally, so dot products are cosine similarities.
 #' @param dimension Name of the dimension column to evaluate. Required only when the
 #'   dictionary has more than one dimension column.
 #' @param n_random Number of random word lists used as the chance-level baseline
@@ -169,6 +188,9 @@
 #' )
 #' rep <- dictionary_eval(dict, embeddings)
 #' rep                       # prints the report card
+#'
+#' # embeddings can also be a file path (read with the builder's loader):
+#' rep <- dictionary_eval(dict, "path/to/cc.pt.300.vec")
 #' }
 #'
 #' @importFrom stats var

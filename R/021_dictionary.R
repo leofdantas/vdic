@@ -7,14 +7,16 @@
 #   dictionary_eval()    a report card: Coherence and Dimensionality (each pole scored
 #                        as a unipolar list, compared to random word lists of the same
 #                        size; a bipolar dict is two cards plus a pole-gap contrast),
-#                        plus a Separation (leave-one-stem-out AUC) check and
-#                        frequency / length / generic-language confounds.
+#                        plus a Separation (leave-one-stem-out AUC) check,
+#                        frequency / length / generic-language confounds, and an
+#                        optional discriminant check against a rival axis.
 #   dictionary_suggest() words to ADD (raise_coherence / broaden_coverage) and weak
 #                        current members to consider removing, judged by the human.
 #
-# The reference axis used here is parameter-free (difference of pole means, or the
-# seed centroid for a unipolar dimension) -- NOT the regularized axis that
-# vectionary_builder() learns later; word selection must not use the axis it trains.
+# The geometry is parameter-free: each pole's metrics read off that pole's own seed
+# centroid, and the checks read off the operative axis (difference of pole means, or
+# the seed centroid when unipolar) -- NOT the regularized axis that vectionary_builder()
+# learns later; word selection must not use the axis it trains.
 
 #- Internal: metric primitives ------------------------------------------------
 # Each pole of a dictionary is scored as a UNIPOLAR list (the primitive); a bipolar
@@ -196,8 +198,6 @@
   embeddings / sqrt(rowSums(embeddings^2))
 }
 
-# Dictionary -> one-dimension seed table (word, score, stem). Stems ending in "*"
-# are expanded against the vocabulary; words kept only if their sign is consistent.
 # Normalize a dictionary argument to a data.frame with a `word` column and >= 1
 # dimension column -- the shared front door for dictionary_eval(), dictionary_suggest(),
 # and vectionary_builder(), so every entry reads the same inputs. A character vector (or
@@ -219,8 +219,10 @@
 }
 
 .dict_seed_df <- function(dictionary, dimension, vocab) {
-  # Accept a character vector / word-only data.frame (binary) or a graded data.frame --
-  # the same front door vectionary_builder() uses.
+  # Resolve one dimension to a seed table (word, score, stem): coerce inputs via the
+  # shared .as_dictionary_df() front door (the one vectionary_builder() also uses), then
+  # expand stems ending in "*" against the vocabulary and keep each word only if its sign
+  # is consistent across entries.
   dictionary <- .as_dictionary_df(dictionary)
   dim_cols <- setdiff(names(dictionary), "word")
   if (is.null(dimension)) {
@@ -429,10 +431,11 @@ dictionary_eval <- function(dictionary, embeddings, dimension = NULL,
 #' @export
 print.dictionary_eval <- function(x, ...) {
   cli_h1("Report card: {x$dimension}")
+  matched <- x$card_pos$n_stems + (if (x$bipolar) x$card_neg$n_stems else 0L)
   if (x$bipolar)
-    cli_alert_info("{x$n_seed} seed words ({x$n_pos} high, {x$n_neg} low) -- two unipolar cards plus a contrast")
+    cli_alert_info("{x$n_seed} seed words ({x$n_pos} high, {x$n_neg} low) from {matched} of {x$n_stems_total} stems matched -- two cards plus a contrast")
   else
-    cli_alert_info("{x$n_seed} seed words (unipolar)")
+    cli_alert_info("{x$n_seed} seed words (unipolar) from {matched} of {x$n_stems_total} stems matched")
 
   pole_block <- function(card, title) {
     cli_h2(title)
@@ -454,7 +457,7 @@ print.dictionary_eval <- function(x, ...) {
   cli_text("")
   cli_ul(c(
     "{.strong Coherence}: how tightly a pole's seeds pin down one direction (1 = perfectly tight)",
-    "{.strong Dimensionality}: variance share on PC1 (high = one concept; PCs-to-80% ~ how many sub-themes)",
+    "{.strong Dimensionality}: variance share on PC1 (high = seeds lie along one direction; PCs-to-80% ~ how many sub-themes)",
     "{.field beats_random}: fraction of {x$n_random} equal-size random lists it out-scores",
     "{.field loo_range}: metric movement when any one stem is dropped (small = stable)"))
 
@@ -592,9 +595,11 @@ print.dictionary_eval <- function(x, ...) {
 #'   directions (greedy farthest-point).
 #' @param pool Size of the candidate pool the coverage search draws from (default 1500).
 #' @param rarity_words Keep only the most frequent fraction of the vocabulary as
-#'   candidates (e.g. \code{0.1} = top 10\%; lower is stricter). \code{NULL} skips the
-#'   frequency filter. Assumes the embedding rows are frequency-sorted (as GloVe is);
-#'   errors if the vocabulary is alphabetical.
+#'   candidates (e.g. \code{0.1} = top 10\%; lower is stricter), using row order as the
+#'   frequency rank. \code{NULL} skips the filter. Assumes the embedding rows are
+#'   frequency-sorted (as the released GloVe, FastText and word2vec files are); the guard
+#'   only rules out an alphabetical vocabulary, so a differently-ordered file could slip
+#'   through -- pass a frequency-sorted matrix or use \code{NULL} if unsure.
 #' @param spellcheck If \code{TRUE} (default), drop non-words via \code{hunspell}
 #'   (the engine \code{\link{vectionary_builder}} uses). Requires the \code{hunspell}
 #'   package.

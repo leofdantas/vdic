@@ -10,7 +10,9 @@ dictionary_eval(
   embeddings,
   dimension = NULL,
   n_random = 500,
-  seed = 574
+  seed = 574,
+  freq_sorted = NULL,
+  against = NULL
 )
 
 \method{print}{dictionary_eval}(x, ...)
@@ -19,17 +21,15 @@ dictionary_eval(
 \item{dictionary}{A data.frame with a \code{word} column and one or more numeric
 dimension columns (the same format \code{\link{vectionary_builder}} accepts), or a
 plain character vector of words. A character vector -- or a data.frame with only a
-\code{word} column -- is read as a \strong{binary} list: every word scores 1
-(unipolar). For a graded dictionary, include numeric column(s): the \strong{sign}
-of the scores sets the poles (a mix of positive and negative is bipolar, a single
-sign unipolar). Words ending in \code{"*"} are treated as stems and expanded
-against the vocabulary.}
+\code{word} column -- is read as a \strong{binary} (unipolar) list: every word
+scores 1. For a graded dictionary the \strong{sign} of the scores sets the poles (a
+mix of positive and negative is bipolar). Words ending in \code{"*"} are treated as
+stems and expanded against the vocabulary.}
 
 \item{embeddings}{Either a numeric matrix with one row per word and \code{rownames}
 equal to the vocabulary, or a path to an embeddings file (FastText \code{.vec},
 GloVe or word2vec \code{.txt}). A path is read with the builder's header-aware
-loader, so a FastText header line is detected and skipped automatically. Rows are
-unit-normalized internally, so dot products are cosine similarities.}
+loader. Rows are unit-normalized internally, so dot products are cosine similarities.}
 
 \item{dimension}{Name of the dimension column to evaluate. Required only when the
 dictionary has more than one dimension column.}
@@ -39,36 +39,59 @@ dictionary has more than one dimension column.}
 
 \item{seed}{Random seed for the baseline draws (default 574), for reproducibility.}
 
+\item{freq_sorted}{Whether the embedding rows are ordered most-frequent-first, so the
+row index can stand in for a frequency rank in the frequency-confound check (the
+released GloVe, FastText and word2vec files are). \code{TRUE}/\code{FALSE} force the
+check on or off; the default \code{NULL} guesses from whether the vocabulary is
+non-alphabetical -- which only rules out an alphabetical dump, so set it explicitly
+if you know the ordering. Unit-normalization removes the vector-norm frequency
+signal, so row order is the only frequency information available.}
+
+\item{against}{Optional discriminant-validity reference: a competing dictionary (same
+formats as \code{dictionary}) or a ready unit axis vector. The report adds the
+cosine between the operative axis and this competing axis -- e.g. a generic valence
+axis, to check an affective construct is not merely tracking negativity.}
+
 \item{x}{A \code{dictionary_eval} object.}
 
 \item{...}{Unused.}
 }
 \value{
-An object of class \code{"dictionary_eval"}: a list with \code{card},
-  \code{checks}, and \code{influential} data frames, the per-pole separation AUCs
-  \code{auc_pos} / \code{auc_neg} (both \code{NA} for a unipolar dimension), plus
-  metadata. It prints a formatted report card.
+An object of class \code{"dictionary_eval"} that prints a formatted report
+  card. Its fields include the per-pole metric lists (\code{card_pos}, and
+  \code{card_neg} when bipolar), the contrast (\code{pole_d}, \code{pole_d_beats}),
+  the Separation AUCs (\code{auc}, \code{auc_pos}, \code{auc_neg}), the confounds
+  (\code{cor_freq}, \code{cor_len}, \code{gen_align}), the discriminant cosine
+  (\code{disc}), and metadata.
 }
 \description{
-Describes a seed word list as a measurement axis, using only cosine similarity
-and PCA read against the full embedding vocabulary. It reports three numbers --
-Coherence, Dimensionality, and Distinctiveness -- each benchmarked against random
-word lists of the same size, plus a Separation (AUC) check and frequency/length
-confound checks.
+Describes a seed word list as a measurement axis, using only cosine similarity and
+PCA read against the full embedding vocabulary. Each pole is scored as a unipolar
+list -- the primitive -- on two headline metrics, \strong{Coherence} and
+\strong{Dimensionality}, each benchmarked against random word lists of the same size.
+A \strong{bipolar} dictionary is reported as two such cards plus a \strong{contrast}
+(the pole gap, a Cohen's d). The checks are a leave-one-stem-out \strong{Separation
+(AUC)} and frequency / length / generic-language confounds, with an optional
+discriminant-validity check against a competing axis.
 
-This is a \strong{construct-side} diagnostic: it judges the WORD LIST (is it tight,
-one-dimensional, distinctive, separable, unconfounded?), not whether the eventual
-axis scores documents correctly. Run it \emph{before} \code{\link{vectionary_builder}}
-to curate the seeds.
+This is a \strong{construct-side} diagnostic: it judges the WORD LIST, not whether
+the eventual axis scores documents correctly. Run it \emph{before}
+\code{\link{vectionary_builder}} to curate the seeds.
 }
 \details{
-The Separation (AUC) check asks whether the reference axis ranks the seed words at
-the extremes of the whole vocabulary. For a \strong{unipolar} dimension it is the
-probability that a random seed outranks a random non-seed. For a \strong{bipolar}
-dimension both poles are tested against a seed-excluded background -- the high pole
-should rank above it, the low pole below it -- and the reported value is the
-\emph{weaker} of the two, so a sharp high pole cannot mask a low pole lost in the
-crowd (the per-pole figures are returned as \code{auc_pos} / \code{auc_neg}).
+\strong{Why two cards for a bipolar dictionary.} A bipolar list is two unipolar
+concepts plus a contrast between them, so a single combined card mixes "is each pole
+tight?" with "are the poles far apart?". Scoring each pole on its own centroid keeps
+every metric on the unipolar \eqn{[0,1]} scale and asks the facet question of each
+pole, while the pole gap (Cohen's d along the difference axis) reports the separation
+as its own number.
+
+\strong{Separation is leave-one-stem-out.} The reference axis is built \emph{from} the
+seeds, so an in-sample AUC reads optimistically. Instead each stem is held out in
+turn, the axis is rebuilt from the rest, and the held-out seeds are ranked against a
+seed-excluded background; the reported AUC averages those folds. For a bipolar
+dimension each pole is tested toward its own end and the \emph{weaker} pole governs
+(\code{auc_pos} / \code{auc_neg} are returned).
 }
 \examples{
 \dontrun{

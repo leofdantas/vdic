@@ -25,17 +25,15 @@ dictionary_suggest(
 \item{dictionary}{A data.frame with a \code{word} column and one or more numeric
 dimension columns (the same format \code{\link{vectionary_builder}} accepts), or a
 plain character vector of words. A character vector -- or a data.frame with only a
-\code{word} column -- is read as a \strong{binary} list: every word scores 1
-(unipolar). For a graded dictionary, include numeric column(s): the \strong{sign}
-of the scores sets the poles (a mix of positive and negative is bipolar, a single
-sign unipolar). Words ending in \code{"*"} are treated as stems and expanded
-against the vocabulary.}
+\code{word} column -- is read as a \strong{binary} (unipolar) list: every word
+scores 1. For a graded dictionary the \strong{sign} of the scores sets the poles (a
+mix of positive and negative is bipolar). Words ending in \code{"*"} are treated as
+stems and expanded against the vocabulary.}
 
 \item{embeddings}{Either a numeric matrix with one row per word and \code{rownames}
 equal to the vocabulary, or a path to an embeddings file (FastText \code{.vec},
 GloVe or word2vec \code{.txt}). A path is read with the builder's header-aware
-loader, so a FastText header line is detected and skipped automatically. Rows are
-unit-normalized internally, so dot products are cosine similarities.}
+loader. Rows are unit-normalized internally, so dot products are cosine similarities.}
 
 \item{dimension}{Name of the dimension column to evaluate. Required only when the
 dictionary has more than one dimension column.}

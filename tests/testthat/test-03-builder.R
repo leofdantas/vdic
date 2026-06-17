@@ -32,15 +32,17 @@
 test_that("vectionary_builder rejects empty dictionary", {
   expect_error(
     vectionary_builder(character(0), "dummy.vec", save_path = NULL),
-    "dictionary cannot be empty"
+    "cannot be empty"
   )
 })
 
 test_that("vectionary_builder rejects dictionary without word column", {
   df <- data.frame(x = 1:3, y = 4:6)
+  # match a single token: cli wraps the message at the terminal width, so any
+  # multi-word substring may be split by a newline.
   expect_error(
     vectionary_builder(df, "dummy.vec", save_path = NULL),
-    "must have a 'word' column"
+    "data.frame"
   )
 })
 
@@ -68,14 +70,16 @@ test_that("vectionary_builder rejects missing embeddings file", {
   )
 })
 
-test_that("vectionary_builder rejects missing dimensions", {
-  df <- data.frame(word = c("test", "hello"))
-  emb <- .create_mock_embeddings()
-  on.exit(unlink(emb))
-  expect_error(
-    vectionary_builder(df, emb, save_path = NULL),
-    "No dimensions specified"
-  )
+test_that("a word-only dictionary is read as a binary list", {
+  # A character vector or a word-only data.frame is coerced to a binary dictionary
+  # (every word scores 1) via the shared .as_dictionary_df() front door, rather than
+  # being rejected for missing dimensions.
+  from_vec <- vdic:::.as_dictionary_df(c("test", "hello"))
+  from_df  <- vdic:::.as_dictionary_df(data.frame(word = c("test", "hello")))
+  expect_true(all(c("word", "score") %in% names(from_vec)))
+  expect_true(all(c("word", "score") %in% names(from_df)))
+  expect_equal(unique(from_vec$score), 1)
+  expect_equal(unique(from_df$score), 1)
 })
 
 test_that("vectionary_builder rejects invalid method", {

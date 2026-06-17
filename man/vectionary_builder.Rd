@@ -26,8 +26,10 @@ vectionary_builder(
 }
 \arguments{
 \item{dictionary}{Either a data frame or a character vector of words.
-- **Data frame**: Must have a 'word' column plus one or more dimension columns
-  (e.g., 'care', 'fairness', 'sentiment'). ALL words are used to learn axes.
+- **Data frame**: A 'word' column plus one or more numeric dimension columns
+  (e.g., 'care', 'fairness', 'sentiment'); ALL words are used to learn axes. A
+  data frame with only a 'word' column is read as a binary list (every word
+  scores 1), the same as a character vector.
 - **Character vector**: A simple list of seed words. Creates a binary dictionary
   where all words score 1 on each dimension specified (or "score" if dimensions=NULL).}
 

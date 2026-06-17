@@ -48,9 +48,11 @@ directions (greedy farthest-point).}
 \item{pool}{Size of the candidate pool the coverage search draws from (default 1500).}
 
 \item{rarity_words}{Keep only the most frequent fraction of the vocabulary as
-candidates (e.g. \code{0.1} = top 10\%; lower is stricter). \code{NULL} skips the
-frequency filter. Assumes the embedding rows are frequency-sorted (as GloVe is);
-errors if the vocabulary is alphabetical.}
+candidates (e.g. \code{0.1} = top 10\%; lower is stricter), using row order as the
+frequency rank. \code{NULL} skips the filter. Assumes the embedding rows are
+frequency-sorted (as the released GloVe, FastText and word2vec files are); the guard
+only rules out an alphabetical vocabulary, so a differently-ordered file could slip
+through -- pass a frequency-sorted matrix or use \code{NULL} if unsure.}
 
 \item{spellcheck}{If \code{TRUE} (default), drop non-words via \code{hunspell}
 (the engine \code{\link{vectionary_builder}} uses). Requires the \code{hunspell}

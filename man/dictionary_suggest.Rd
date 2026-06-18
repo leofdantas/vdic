@@ -3,7 +3,7 @@
 \name{dictionary_suggest}
 \alias{dictionary_suggest}
 \alias{print.dictionary_suggest}
-\title{Suggest words to add to or remove from a seed dictionary}
+\title{Suggest words to add to a seed dictionary}
 \usage{
 dictionary_suggest(
   dictionary,
@@ -13,27 +13,24 @@ dictionary_suggest(
   raise_coherence = TRUE,
   broaden_coverage = TRUE,
   pool = 1500,
-  rarity_words = 0.1,
+  rarity_words = 0.2,
   spellcheck = TRUE,
-  n_weak = 15,
-  n_near = 5
+  language = "en"
 )
 
 \method{print}{dictionary_suggest}(x, ...)
 }
 \arguments{
 \item{dictionary}{A data.frame with a \code{word} column and one or more numeric
-dimension columns (the same format \code{\link{vectionary_builder}} accepts), or a
-plain character vector of words. A character vector -- or a data.frame with only a
-\code{word} column -- is read as a \strong{binary} (unipolar) list: every word
-scores 1. For a graded dictionary the \strong{sign} of the scores sets the poles (a
-mix of positive and negative is bipolar). Words ending in \code{"*"} are treated as
-stems and expanded against the vocabulary.}
+dimension columns (the format \code{\link{vectionary_builder}} accepts), or a plain
+character vector of words. A character vector -- or a \code{word}-only data.frame -- is
+read as a \strong{binary} (unipolar) list (every word scores 1); for a graded
+dictionary the \strong{sign} of the scores sets the poles (a mix of positive and
+negative is bipolar). Words ending in \code{"*"} are stems, expanded against the vocabulary.}
 
-\item{embeddings}{Either a numeric matrix with one row per word and \code{rownames}
-equal to the vocabulary, or a path to an embeddings file (FastText \code{.vec},
-GloVe or word2vec \code{.txt}). A path is read with the builder's header-aware
-loader. Rows are unit-normalized internally, so dot products are cosine similarities.}
+\item{embeddings}{A numeric matrix with one row per word and \code{rownames} equal to
+the vocabulary, or a path to an embeddings file (FastText \code{.vec}, GloVe or
+word2vec \code{.txt}). Rows are unit-normalized internally.}
 
 \item{dimension}{Name of the dimension column to evaluate. Required only when the
 dictionary has more than one dimension column.}
@@ -42,62 +39,49 @@ dictionary has more than one dimension column.}
 
 \item{raise_coherence}{If \code{TRUE} (default), suggest the strongest on-pole words.}
 
-\item{broaden_coverage}{If \code{TRUE} (default), suggest on-theme words in new
-directions (greedy farthest-point).}
+\item{broaden_coverage}{If \code{TRUE} (default), suggest on-theme words in new directions
+(greedy farthest-point).}
 
 \item{pool}{Size of the candidate pool the coverage search draws from (default 1500).}
 
-\item{rarity_words}{Keep only the most frequent fraction of the vocabulary as
-candidates (e.g. \code{0.1} = top 10\%; lower is stricter), using row order as the
-frequency rank. \code{NULL} skips the filter. Assumes the embedding rows are
-frequency-sorted (as the released GloVe, FastText and word2vec files are); the guard
-only rules out an alphabetical vocabulary, so a differently-ordered file could slip
-through -- pass a frequency-sorted matrix or use \code{NULL} if unsure.}
+\item{rarity_words}{Keep only the most frequent fraction of the vocabulary as candidates
+(e.g. \code{0.2} = top 20\%), using row order as the frequency rank; this removes rare
+off-theme real words that spellcheck passes. \code{NULL} skips the filter. Assumes the
+rows are frequency-sorted (errors on an alphabetical vocabulary). A genuinely sparse pole
+still returns few words \emph{and warns}, regardless of this filter.}
 
-\item{spellcheck}{If \code{TRUE} (default), drop non-words via \code{hunspell}
-(the engine \code{\link{vectionary_builder}} uses). Requires the \code{hunspell}
-package.}
+\item{spellcheck}{If \code{TRUE} (default), drop non-words via \code{hunspell} (the engine
+\code{\link{vectionary_builder}} uses). Requires the \code{hunspell} package.}
 
-\item{n_weak}{Number of weak current members to list per pole (default 15).}
-
-\item{n_near}{Number of nearest non-seed neighbours to show per weak member
-(default 5).}
+\item{language}{Language code for the stopword list (default \code{"en"}).}
 
 \item{x}{A \code{dictionary_suggest} object.}
 
 \item{...}{Unused.}
 }
 \value{
-An object of class \code{"dictionary_suggest"}: a list with an \code{add}
-  data frame (columns \code{pole}, \code{mode}, \code{word}, \code{axis_proj},
-  \code{nearest_seed}) and a \code{weak} data frame (columns \code{pole},
-  \code{word}, \code{lean}, \code{neighbors}). It prints a formatted diff.
+An object of class \code{"dictionary_suggest"}: a list with an \code{add} data
+  frame (columns \code{pole}, \code{mode}, \code{word}, \code{axis_proj},
+  \code{nearest_seed}). It prints a formatted list of additions.
 }
 \description{
-Proposes an annotated diff for a seed word list, judged by the human:
-\itemize{
-  \item \strong{words to add}, two ways -- \code{raise_coherence} (the strongest
-    words on the pole, which sharpen the axis) and \code{broaden_coverage}
-    (on-theme words in new directions, picked greedily farthest-first, which widen it);
-  \item \strong{weak current members} that lean toward the other side, each shown
-    with its nearest non-seed neighbours so a member worth keeping can be explored.
-}
-For a bipolar dimension both poles are handled (the contrast is the opposite pole);
-for a unipolar dimension the contrast is the vocabulary average. Selection uses the
-parameter-free difference-of-means axis, never a learned/regularized axis. It never
-edits the dictionary.
+Proposes on-theme words to ADD to a seed list, judged by the human: \code{raise_coherence}
+returns the strongest words on the pole (which sharpen the axis) and \code{broaden_coverage}
+returns on-theme words in new directions (greedy farthest-point, which widen it). For a
+bipolar dimension both poles are handled. Selection reads the same parameter-free operative
+axis as \code{\link{dictionary_eval}} -- the seed centroid (unipolar) or pole-mean
+difference (bipolar) -- never a learned axis, and never edits the dictionary. (Spotting
+weak / redundant existing members is now \code{\link{dictionary_eval}}'s per-word audit.)
 }
 \examples{
 \dontrun{
-dict <- data.frame(
-  word      = c("happy", "joy", "sad", "grief"),
-  sentiment = c(1, 1, -1, -1)
-)
-dictionary_suggest(dict, embeddings)                 # both poles
+dict <- data.frame(word = c("happy", "joy", "sad", "grief"), sentiment = c(1, 1, -1, -1))
+dictionary_suggest(dict, embeddings)
 dictionary_suggest(dict, embeddings, rarity_words = NULL, spellcheck = FALSE)
 }
 
 }
 \seealso{
-\code{\link{dictionary_eval}} for the report card.
+\code{\link{dictionary_eval}} for the report card,
+  \code{\link{dictionary_compare}} to contrast lists.
 }

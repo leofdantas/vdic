@@ -9,106 +9,82 @@ dictionary_eval(
   dictionary,
   embeddings,
   dimension = NULL,
-  n_random = 500,
-  seed = 574,
   freq_sorted = NULL,
-  against = NULL
+  t_weak = 1.5,
+  t_twin = 0.8,
+  t_gen = 0.4
 )
 
 \method{print}{dictionary_eval}(x, ...)
 }
 \arguments{
 \item{dictionary}{A data.frame with a \code{word} column and one or more numeric
-dimension columns (the same format \code{\link{vectionary_builder}} accepts), or a
-plain character vector of words. A character vector -- or a data.frame with only a
-\code{word} column -- is read as a \strong{binary} (unipolar) list: every word
-scores 1. For a graded dictionary the \strong{sign} of the scores sets the poles (a
-mix of positive and negative is bipolar). Words ending in \code{"*"} are treated as
-stems and expanded against the vocabulary.}
+dimension columns (the format \code{\link{vectionary_builder}} accepts), or a plain
+character vector of words. A character vector -- or a \code{word}-only data.frame -- is
+read as a \strong{binary} (unipolar) list (every word scores 1); for a graded
+dictionary the \strong{sign} of the scores sets the poles (a mix of positive and
+negative is bipolar). Words ending in \code{"*"} are stems, expanded against the vocabulary.}
 
-\item{embeddings}{Either a numeric matrix with one row per word and \code{rownames}
-equal to the vocabulary, or a path to an embeddings file (FastText \code{.vec},
-GloVe or word2vec \code{.txt}). A path is read with the builder's header-aware
-loader. Rows are unit-normalized internally, so dot products are cosine similarities.}
+\item{embeddings}{A numeric matrix with one row per word and \code{rownames} equal to
+the vocabulary, or a path to an embeddings file (FastText \code{.vec}, GloVe or
+word2vec \code{.txt}). Rows are unit-normalized internally.}
 
 \item{dimension}{Name of the dimension column to evaluate. Required only when the
 dictionary has more than one dimension column.}
 
-\item{n_random}{Number of random word lists used as the chance-level baseline
-(default 500). Larger is steadier but slower.}
-
-\item{seed}{Random seed for the baseline draws (default 574), for reproducibility.}
-
 \item{freq_sorted}{Whether the embedding rows are ordered most-frequent-first, so the
-row index can stand in for a frequency rank in the frequency-confound check (the
-released GloVe, FastText and word2vec files are). \code{TRUE}/\code{FALSE} force the
-check on or off; the default \code{NULL} guesses from whether the vocabulary is
-non-alphabetical -- which only rules out an alphabetical dump, so set it explicitly
-if you know the ordering. Unit-normalization removes the vector-norm frequency
-signal, so row order is the only frequency information available.}
+row index can stand in for a frequency rank in the frequency confound. \code{TRUE} /
+\code{FALSE} force the check on or off; the default \code{NULL} guesses from whether
+the vocabulary is non-alphabetical.}
 
-\item{against}{Optional discriminant-validity reference: a competing dictionary (same
-formats as \code{dictionary}) or a ready unit axis vector. The report adds the
-cosine between the operative axis and this competing axis -- e.g. a generic valence
-axis, to check an affective construct is not merely tracking negativity.}
+\item{t_weak}{Robust-z cutoff (within a pole) below which a seed is flagged
+\code{weak-offcentre} (default 1.5).}
+
+\item{t_twin}{Cosine above which a seed is flagged \code{redundant} with its nearest
+fellow seed (default 0.80).}
+
+\item{t_gen}{\code{|cos|} to the vocabulary mean direction above which a seed is flagged
+\code{ambiguous-generic} (default 0.40).}
 
 \item{x}{A \code{dictionary_eval} object.}
 
 \item{...}{Unused.}
 }
 \value{
-An object of class \code{"dictionary_eval"} that prints a formatted report
-  card. Its fields include the per-pole metric lists (\code{card_pos}, and
-  \code{card_neg} when bipolar), the contrast (\code{pole_d}, \code{pole_d_beats}),
-  the Separation AUCs (\code{auc}, \code{auc_pos}, \code{auc_neg}), the confounds
-  (\code{cor_freq}, \code{cor_len}, \code{gen_align}), the discriminant cosine
-  (\code{disc}), and metadata.
+An object of class \code{"dictionary_eval"} that prints a formatted report card.
+  Fields include the per-pole cards (\code{cards}, each with \code{coherence} and the
+  per-word \code{audit} data frame), the bipolar \code{contrast} (cosine between the pole
+  means), the confounds (\code{cor_freq}, \code{cor_len}, \code{gen_align}), and metadata.
 }
 \description{
-Describes a seed word list as a measurement axis, using only cosine similarity and
-PCA read against the full embedding vocabulary. Each pole is scored as a unipolar
-list -- the primitive -- on two headline metrics, \strong{Coherence} and
-\strong{Dimensionality}, each benchmarked against random word lists of the same size.
-A \strong{bipolar} dictionary is reported as two such cards plus a \strong{contrast}
-(the pole gap, a Cohen's d). The checks are a leave-one-stem-out \strong{Separation
-(AUC)} and frequency / length / generic-language confounds, with an optional
-discriminant-validity check against a competing axis.
+Describes a seed word list as a measurement axis using only cosine similarity read
+against the full embedding vocabulary. Reports each pole's \strong{Coherence} (how
+tightly the seeds point one way -- the mean of the per-word \code{on_axis} values) and a
+per-word \strong{audit} that flags each seed as \code{redundant} (a near-duplicate of
+another seed), \code{weak-offcentre} (a low outlier within its pole),
+\code{ambiguous-generic} (leaning into the vocabulary's average direction), or
+\code{ambiguous-xpole} (closer to the other pole's centroid, bipolar only), plus
+frequency / length / generic-direction \strong{confounds} on the operative axis.
 
-This is a \strong{construct-side} diagnostic: it judges the WORD LIST, not whether
-the eventual axis scores documents correctly. Run it \emph{before}
-\code{\link{vectionary_builder}} to curate the seeds.
-}
-\details{
-\strong{Why two cards for a bipolar dictionary.} A bipolar list is two unipolar
-concepts plus a contrast between them, so a single combined card mixes "is each pole
-tight?" with "are the poles far apart?". Scoring each pole on its own centroid keeps
-every metric on the unipolar \eqn{[0,1]} scale and asks the facet question of each
-pole, while the pole gap (Cohen's d along the difference axis) reports the separation
-as its own number.
-
-\strong{Separation is leave-one-stem-out.} The reference axis is built \emph{from} the
-seeds, so an in-sample AUC reads optimistically. Instead each stem is held out in
-turn, the axis is rebuilt from the rest, and the held-out seeds are ranked against a
-seed-excluded background; the reported AUC averages those folds. For a bipolar
-dimension each pole is tested toward its own end and the \emph{weaker} pole governs
-(\code{auc_pos} / \code{auc_neg} are returned).
+This is a \strong{construct-side} diagnostic: it judges the WORD LIST, not whether the
+eventual axis scores documents correctly. Run it \emph{before}
+\code{\link{vectionary_builder}} to curate the seeds. It reads the same parameter-free
+operative axis -- the seed centroid (unipolar) or pole-mean difference (bipolar) -- that
+\code{\link{dictionary_compare}} and \code{\link{dictionary_suggest}} use, never the
+regularized axis the builder learns.
 }
 \examples{
 \dontrun{
-# embeddings: matrix, rownames = words (e.g. read from a GloVe/FastText file)
 dict <- data.frame(
-  word      = c("happy", "joy", "delight*", "sad", "grief", "misery"),
+  word      = c("happy", "joy", "delight", "sad", "grief", "misery"),
   sentiment = c(1, 1, 1, -1, -1, -1)
 )
-rep <- dictionary_eval(dict, embeddings)
-rep                       # prints the report card
-
-# embeddings can also be a file path (read with the builder's loader):
-rep <- dictionary_eval(dict, "path/to/cc.pt.300.vec")
+dictionary_eval(dict, embeddings)        # prints the report card
 }
 
 }
 \seealso{
-\code{\link{dictionary_suggest}} to propose words to add or remove,
+\code{\link{dictionary_compare}} to contrast candidate lists,
+  \code{\link{dictionary_suggest}} to propose words to add,
   \code{\link{vectionary_builder}} to learn the axis once the list is curated.
 }

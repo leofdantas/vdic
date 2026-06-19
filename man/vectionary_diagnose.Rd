@@ -4,7 +4,7 @@
 \alias{vectionary_diagnose}
 \title{Diagnose a vec-tionary}
 \usage{
-vectionary_diagnose(vectionary, n = 30, dimension = NULL)
+vectionary_diagnose(vectionary, n = 30, dimension = NULL, verbose = TRUE)
 }
 \arguments{
 \item{vectionary}{A vectionary object (from [vectionary_builder()])}

@@ -41,7 +41,7 @@ devtools::install_github("leofdantas/vdic")
 ```r
 library(vdic)
 
-# FastText (157 languages)
+# FastText word vectors (built-in languages: pt, en, es)
 download_embeddings(language = "en", model = "fasttext", dimensions = 300)
 # Saves to: vdic_data/cc.en.300.vec
 
@@ -49,7 +49,7 @@ download_embeddings(language = "en", model = "fasttext", dimensions = 300)
 download_embeddings(language = "en", model = "glove", dimensions = 300)
 ```
 
-Any `.vec`/`.txt` embedding file (word + space-separated vector per line) also works — pass its path directly. FastText (with header) and GloVe (no header) are auto-detected.
+Any `.vec`/`.txt` embedding file (word + space-separated vector per line) also works — pass its path directly, and FastText (with header) vs. GloVe (no header) are auto-detected. `download_embeddings()` fetches FastText for `pt`/`en`/`es` and English word2vec/GloVe; FastText itself publishes 157 languages, so for any other language download the `cc.<lang>.300.vec` file manually and point `vectionary_builder()` at it.
 
 ---
 
@@ -208,6 +208,14 @@ dictionary_suggest(energy, embeddings = "vdic_data/cc.en.300.vec")
 
 ```
 ── Words to add: score ─────────────────────────────────────────────
+── Pole: high (+) ──
+Sharpen the axis (strongest on-pole words)
+         word axis_proj nearest_seed
+ photovoltaic     0.344        solar
+   excellence     0.314  sustainable
+! only 2 on-theme candidates cleared the filters (asked for 20): the
+  clean-energy region is thin, so this pole needs more or better seeds
+
 ── Pole: low (-) ──
 Sharpen the axis (strongest on-pole words)
          word axis_proj nearest_seed
@@ -225,6 +233,8 @@ Broaden coverage (on-theme, new directions)
      gasoline     0.274          oil
       vapors     0.273   combustion
 ```
+
+The suggestions are candidates for *you* to judge, not automatic edits — note `excellence` slipping into the thin high pole. A sparse pole returns few words **and warns** rather than padding the list with noise.
 
 ### Guidelines (the curation loop)
 
@@ -401,12 +411,14 @@ Image embedding/analysis require Python (`transformers`, `torch`, `Pillow`, `sen
 
 ## Embedding sources
 
-| Model | Languages | Download |
-|-------|-----------|----------|
-| FastText | 157 languages | `download_embeddings("en", "fasttext")` |
-| word2vec | English | `download_embeddings("en", "word2vec")` |
-| GloVe | English | `download_embeddings("en", "glove")` |
-| SigLIP 2 | Multi-modal (text + image) | `download_embeddings(model = "siglip")` |
+| Model | Languages (built-in) | Download |
+|-------|----------------------|----------|
+| FastText | `pt`, `en`, `es` | `download_embeddings("en", "fasttext")` |
+| word2vec | `en` | `download_embeddings("en", "word2vec")` |
+| GloVe | `en` | `download_embeddings("en", "glove")` |
+| SigLIP 2 | multi-modal (text + image) | `download_embeddings(model = "siglip")` |
+
+FastText publishes vectors for 157 languages; `download_embeddings()` fetches `pt`/`en`/`es` directly. For any other language, download the `cc.<lang>.300.vec` file and pass its path to `vectionary_builder()` (the builder's `language` argument, used for stopwords and spell-checking, accepts any [wooorm/dictionaries](https://github.com/wooorm/dictionaries) language).
 
 ## Build pipeline
 

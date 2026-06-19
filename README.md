@@ -278,14 +278,36 @@ climate_vect$mean("Rising sea levels are displacing coastal communities")
 #> $score
 #> [1] 0.5413
 
-# All metrics at once
+# All metrics at once -- a nested list, metric -> dimension
 climate_vect$metrics("Record droughts and wildfires devastated the region")
-#> $mean$score      [1] 0.6072
-#> $msp$score       [1] 0.4128
-#> $sd$score        [1] 0.2233
-#> $se$score        [1] 0.0993
-#> $top_10$score    [1] 0.6072
-#> $top_20$score    [1] 0.6072
+#> $mean
+#> $mean$score
+#> [1] 0.6072
+#>
+#> $msp
+#> $msp$score
+#> [1] 0.4128
+#>
+#> $sd
+#> $sd$score
+#> [1] 0.2233
+#>
+#> $se
+#> $se$score
+#> [1] 0.0993
+#>
+#> $top_10
+#> $top_10$score
+#> [1] 0.6072
+#>
+#> $top_20
+#> $top_20$score
+#> [1] 0.6072
+
+# Tidy any metrics list into a one-row data frame (metric.dimension columns)
+as.data.frame(climate_vect$metrics("Record droughts and wildfires devastated the region"))
+#>   mean.score msp.score sd.score se.score top_10.score top_20.score
+#> 1     0.6072    0.4128   0.2233   0.0993       0.6072       0.6072
 ```
 
 ### Batch analysis

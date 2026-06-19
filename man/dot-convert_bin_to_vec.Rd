@@ -22,7 +22,7 @@ The binary format stores vectors as raw floats, while .vec uses space-separated
 text. This conversion allows all existing text-based parsers to work with
 word2vec embeddings.
 
-Binary format: header line "vocab_size n_dims\n", then for each word:
+Binary format: header line "vocab_size n_dims\\n", then for each word:
 word bytes terminated by space (0x20), then n_dims x 4-byte little-endian floats,
 then optional newline (0x0A).
 }

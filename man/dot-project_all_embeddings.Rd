@@ -20,8 +20,8 @@ Data frame with 'word' column and one column per dimension containing projection
 }
 \description{
 Reads the embeddings file and computes projections for ALL words onto the
-learned axes. Uses data.table::fread() for fast parsing when available,
-with fallback to base R streaming for large files.
+learned axes. Uses data.table::fread() to load and project the full
+vocabulary in one pass.
 
 This replicates the Duan et al. (2025) approach where the vectionary can
 score any word in the vocabulary.

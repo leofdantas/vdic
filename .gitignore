@@ -1,0 +1,23 @@
+# R artifacts
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+.DS_Store
+
+# objects
+vdic_data
+vectionary.rds
+tests/images
+
+# testing
+testing
+
+# Claude
+CLAUDE.md
+.claude
+
+# Others
+inst/doc
+vdic_logo.pptx

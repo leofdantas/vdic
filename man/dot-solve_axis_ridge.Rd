@@ -14,8 +14,8 @@
 \item{lambda}{Ridge regularization parameter (default: 1.0)}
 }
 \value{
-Numeric vector representing the axis. Not unit-normalized; scale encodes
-  dictionary scores when used with unit-norm embeddings.
+Numeric vector representing the learned axis, unit-normalized to length 1.
+  Scores from dotting L2-normalized embeddings with this axis are cosine similarities.
 }
 \description{
 Finds the optimal axis in embedding space for a dimension using ridge regression.

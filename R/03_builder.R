@@ -1,25 +1,25 @@
-# ╔══════════════════════════════════════════════════════════════════════════════╗
-# ║  03_builder.R — Vec-tionary Construction Engine                            ║
-# ║                                                                            ║
-# ║  This file implements the core pipeline for building vec-tionaries:        ║
-# ║    1. Filter embedding vocabulary (spellcheck, stopwords, non-alphabetic)  ║
-# ║    2. Expand stem patterns (e.g., "abandon*" → all inflections)            ║
-# ║    3. Select regularization parameter lambda (GCV, CV, or grid search)     ║
-# ║    4. Learn semantic axes via regression (ridge / elastic net / Duan)      ║
-# ║    5. Optionally expand dictionary with high-projection words              ║
-# ║    6. Project full embedding vocabulary onto learned axes                  ║
-# ║    7. Package into S3 "Vec-tionary" object and save                        ║
-# ║                                                                            ║
-# ║  Mathematical core:                                                        ║
-# ║    Ridge:       $a = (W^T W + \lambda I)^{-1} W^T y$                      ║
-# ║    Elastic net: glmnet with L1+L2 penalty                                 ║
-# ║    LASSO:       glmnet with L1 penalty (l1_ratio = 1)                     ║
-# ║    Duan (2025): $\min ||Wm - y||^2$ s.t. $||m|| = 1$                      ║
-# ║                                                                            ║
-# ║  All word embeddings are unit-normalized before axis learning so that      ║
-# ║  projections are cosine-similarity-based rather than magnitude-biased.     ║
-# ║  Axes are NOT unit-normalized — their scale encodes dictionary scores.     ║
-# ╚══════════════════════════════════════════════════════════════════════════════╝
+# ==============================================================================
+#  03_builder.R — Vec-tionary Construction Engine                            
+#                                                                             
+#   This file implements the core pipeline for building vec-tionaries:        
+#     1. Filter embedding vocabulary (spellcheck, stopwords, non-alphabetic)  
+#     2. Expand stem patterns (e.g., "abandon*" → all inflections)            
+#     3. Select regularization parameter lambda (GCV, CV, or grid search)     
+#     4. Learn semantic axes via regression (ridge / elastic net / Duan)      
+#     5. Optionally expand dictionary with high-projection words              
+#     6. Project full embedding vocabulary onto learned axes                  
+#     7. Package into S3 "Vec-tionary" object and save                        
+#                                                                             
+#   Mathematical core:                                                        
+#     Ridge:       $a = (W^T W + \lambda I)^{-1} W^T y$                      
+#     Elastic net: glmnet with L1+L2 penalty                                 
+#     LASSO:       glmnet with L1 penalty (l1_ratio = 1)                     
+#     Duan (2025): $\min ||Wm - y||^2$ s.t. $||m|| = 1$                      
+#                                                                             
+#   All word embeddings are unit-normalized before axis learning so that      
+#   projections are cosine-similarity-based rather than magnitude-biased.     
+#   Learned axes are ALSO unit-normalized, so projections are pure cosine sim.
+# ==============================================================================
 
 #' Build a vec-tionary from dictionary and embeddings
 #'
@@ -38,6 +38,14 @@
 #'     where all words score 1 on each dimension specified (or "score" if dimensions=NULL).
 #' @param embeddings Path to word embeddings file. Can be FastText .vec format,
 #'   word2vec .bin format, or GloVe .txt format.
+#' @param modality Embedding modality (default: "text"). Options:
+#'   \itemize{
+#'     \item "text": Use traditional word embeddings (FastText, word2vec, GloVe)
+#'     \item "multimodal": Use SigLIP 2 multi-modal embeddings. Dictionary words are
+#'       encoded in the shared text-image embedding space (1536-dim), creating axes
+#'       that can analyze both text and images. Requires embeddings parameter to be
+#'       "siglip" or a path to pre-computed SigLIP 2 embeddings.
+#'   }
 #' @param language Language code for stopwords and spell checking (default: "en").
 #'   Any language supported by the wooorm/dictionaries repository can be used
 #'   (e.g., "en", "pt", "es", "fr", "de", "it", "nl", "ru"). When spellcheck = TRUE,
@@ -65,16 +73,18 @@
 #'   more zero coefficients. Ignored for method="ridge" or "lasso".
 #' @param lambda Regularization parameter. Can be:
 #'   \itemize{
-#'     \item "gcv" (default): Use Generalized Cross-Validation (Golub et al., 1979) to select
-#'       optimal lambda. Only works with method="ridge".
+#'     \item "gcv" (default): Automatically select the optimal lambda. For
+#'       method="ridge", uses closed-form Generalized Cross-Validation (Golub et al.,
+#'       1979); for method="elastic_net"/"lasso", dispatches to glmnet
+#'       cross-validation (cv.glmnet). Ignored for method="duan".
 #'     \item Numeric value (e.g., 0.5): Use this specific lambda
 #'     \item Numeric vector (e.g., c(0.01, 0.1, 1)): Test these values and select optimal
 #'   }
 #'   Higher lambda creates more regularized axes. When multiple values are provided,
-#'   the optimal lambda is selected based on validity (R² or AUC) and axis differentiation.
+#'   the optimal lambda is selected based on validity (R-squared or AUC) and axis differentiation.
 #' @param min_validity Minimum validity threshold (default: 0.75 = 75%).
 #'   Only used when lambda is a numeric vector (ignored for "gcv").
-#'   For continuous dictionaries: R² between scores and projections.
+#'   For continuous dictionaries: R-squared between scores and projections.
 #'   For binary dictionaries: AUC (0.5 = random, 1.0 = perfect separation).
 #'   Lambda candidates below this threshold are rejected unless none pass.
 #' @param expand_vocab Integer or NULL (default). If set, expands the training
@@ -194,6 +204,7 @@
 vectionary_builder <- function(
   dictionary,
   embeddings,
+  modality = "text",
   language = "en",
   dimensions = NULL,
   binary_word = TRUE,
@@ -212,6 +223,11 @@ vectionary_builder <- function(
 ) {
 
 #- Input validation and conversion ----
+
+  ##- Validate modality parameter ----
+  if (!modality %in% c("text", "multimodal")) {
+    stop("modality must be either 'text' or 'multimodal', not '", modality, "'")
+  }
 
   # The dictionary can arrive in two forms:
   #   1. Character vector of words → converted to a binary data frame (all words score 1)
@@ -320,26 +336,28 @@ vectionary_builder <- function(
     dictionary$word <- tolower(dictionary$word)
   }
 
-  if (!file.exists(embeddings)) {
-    stop("Embeddings file not found: ", embeddings, "\n",
-         "Download embeddings with: download_embeddings()")
-  }
-
-  ##- Resolve language ----
-  if (!is.character(language) || length(language) != 1 || nchar(language) == 0) {
-    stop("language must be a single non-empty character string (e.g., 'en', 'pt', 'fr')")
-  }
-
-  ##- Resolve stopwords ----
-  # Stopwords can come from three sources:
-  #   remove_stopwords = TRUE  → built-in list for this language (from 01_package.R)
-  #   remove_stopwords = character vector → user-supplied custom list
-  #   remove_stopwords = FALSE → no stopword filtering (stopwords stays NULL)
+  ##- Text-mode: validate embeddings file and resolve language/stopwords ----
+  # Multimodal mode uses SigLIP (no file), so these checks only apply to text.
   stopwords <- NULL
-  if (isTRUE(remove_stopwords)) {
-    stopwords <- .get_stopwords(language)
-  } else if (is.character(remove_stopwords)) {
-    stopwords <- remove_stopwords
+  if (modality == "text") {
+    if (!file.exists(embeddings)) {
+      stop("Embeddings file not found: ", embeddings, "\n",
+           "Download embeddings with: download_embeddings()")
+    }
+
+    if (!is.character(language) || length(language) != 1 || nchar(language) == 0) {
+      stop("language must be a single non-empty character string (e.g., 'en', 'pt', 'fr')")
+    }
+
+    # Stopwords can come from three sources:
+    #   remove_stopwords = TRUE  → built-in list for this language
+    #   remove_stopwords = character vector → user-supplied custom list
+    #   remove_stopwords = FALSE → no stopword filtering (stopwords stays NULL)
+    if (isTRUE(remove_stopwords)) {
+      stopwords <- .get_stopwords(language)
+    } else if (is.character(remove_stopwords)) {
+      stopwords <- remove_stopwords
+    }
   }
 
   ##- Validate and process lambda parameter ----
@@ -431,7 +449,7 @@ vectionary_builder <- function(
 
     if (all_same) {
       stop(
-        "All dimensions have identical score patterns — axes would be indistinguishable.\n",
+        "All dimensions have identical score patterns - axes would be indistinguishable.\n",
         if (binary_word) {
           paste0(
             "binary_word = TRUE converted all nonzero values to 1, collapsing dimensions.\n",
@@ -466,7 +484,30 @@ vectionary_builder <- function(
   # PIPELINE
   # ════════════════════════════════════════════════
 
-  #- Banner ----
+  #- Multimodal pipeline branch ----
+  # Shared validation above runs for all modalities. From here, multimodal
+  # diverges: it encodes dictionary words with SigLIP (no file-based vocab
+  # filtering or projection) and calls the axis solvers directly with the
+  # resulting embedding matrix. Implemented in R/05_multimodal.R.
+  if (modality == "multimodal") {
+    return(.build_multimodal_axes(
+      dictionary  = dictionary,
+      dimensions  = dimensions,
+      binary_word = binary_word,
+      method      = method,
+      l1_ratio    = l1_ratio,
+      lambda      = lambda,
+      use_gcv     = use_gcv,
+      lambda_range = lambda_range,
+      min_validity = min_validity,
+      expand_vocab = expand_vocab,
+      save_path   = save_path,
+      verbose     = verbose,
+      seed        = seed
+    ))
+  }
+
+  #- Text pipeline banner ----
   if (verbose) {
     cli_h1("Building Vec-tionary")
     cli_ul(c(
@@ -701,7 +742,10 @@ vectionary_builder <- function(
     list(
       axes = result$axes,
       word_projections = word_projections,
+      image_projections = NULL,  # Only populated for multimodal vectionaries
       dimensions = dimensions,
+      modality = "text",
+      embedding_dim = length(result$axes[[1]]),  # Auto-detect from axes (word-embedding dim, e.g. 300 for FastText/word2vec)
       metadata = list(
         method = method,
         l1_ratio = if (method == "elastic_net") l1_ratio else if (method == "lasso") 1.0 else NULL,
@@ -1223,13 +1267,7 @@ vectionary_builder <- function(
     hunspell_dict <- .get_hunspell_dict(language, verbose)
   }
 
-  # Two code paths: data.table (fast, in-memory) vs base R (streaming, low memory).
-  # data.table loads the entire file at once (~2 GB), which is much faster but
-  # requires enough RAM. The streaming fallback processes line-by-line.
-  has_dt <- requireNamespace("data.table", quietly = TRUE)
-
-  if (has_dt) {
-    # ── Fast path: data.table (loads entire file into memory) ──
+  # Load the whole embeddings file into memory with data.table, then filter it.
     header <- .parse_embeddings_header(readLines(embeddings_path, n = 1, warn = FALSE))
     n_dims <- header$n_dims
     skip_rows <- if (header$is_header) 1L else 0L
@@ -1336,102 +1374,6 @@ vectionary_builder <- function(
       cli_alert_success("Filtered vocabulary: {n_total} -> {length(words)} words")
     }
 
-  } else {
-    # ── Streaming fallback (base R) ──
-    if (use_spellcheck) {
-      stop("Package 'data.table' is required for spellcheck = TRUE. ",
-           "Install it with: install.packages('data.table')")
-    }
-
-    stopwords_set <- if (use_stopwords) tolower(stopwords) else character(0)
-
-    # Strategy: write the filtered word vectors to a body temp file (no header),
-    # then create the final file by writing the header line + copying the body.
-    # This avoids needing a second pass over the entire file just to count lines
-    # for the header, since we don't know the final word count until streaming ends.
-    body_path <- tempfile(fileext = ".body")
-    filtered_path <- tempfile(fileext = ".vec")
-
-    con_in <- file(embeddings_path, "r", encoding = "UTF-8")
-    con_body <- file(body_path, "w", encoding = "UTF-8")
-    on.exit({ close(con_in); close(con_body) }, add = TRUE)
-
-    # Parse header
-    first_line <- readLines(con_in, n = 1, warn = FALSE)
-    header <- .parse_embeddings_header(first_line)
-
-    n_kept <- 0
-    n_dims_out <- header$n_dims
-    seen_words <- character(0)  # Track seen words for case-variant deduplication
-
-    # Process first line if not a header
-    if (!header$is_header && length(header$parts) > 2) {
-      word <- tolower(header$parts[1])
-      if (grepl("^\\p{L}+$", word, perl = TRUE) && !(word %in% stopwords_set)) {
-        header$parts[1] <- word
-        writeLines(paste(header$parts, collapse = " "), con_body)
-        seen_words <- c(seen_words, word)
-        n_kept <- n_kept + 1
-      }
-    }
-
-    # Stream through file
-    chunk_size <- 50000
-    lines_read <- 0
-
-    if (verbose) {
-      cli_alert_info("Streaming and filtering embeddings (stopwords only, no spellcheck)...")
-    }
-
-    repeat {
-      lines <- readLines(con_in, n = chunk_size, warn = FALSE)
-      if (length(lines) == 0) break
-      lines_read <- lines_read + length(lines)
-
-      for (line in lines) {
-        if (nchar(trimws(line)) == 0) next
-        space_pos <- regexpr(" ", line, fixed = TRUE)
-        if (space_pos < 1) next
-        word <- tolower(substr(line, 1, space_pos - 1))
-        if (!grepl("^\\p{L}+$", word, perl = TRUE)) next
-        if (word %in% stopwords_set) next
-        if (word %in% seen_words) next  # Deduplicate case variants
-
-        # Rewrite with lowercase word
-        rest <- substr(line, space_pos, nchar(line))
-        writeLines(paste0(word, rest), con_body)
-        seen_words <- c(seen_words, word)
-        n_kept <- n_kept + 1
-      }
-
-      if (verbose && lines_read %% 500000 == 0) {
-        cli_alert_info("Processed {lines_read} lines, kept {n_kept} words")
-      }
-    }
-
-    # Close connections (the on.exit handler becomes a harmless no-op)
-    close(con_in)
-    close(con_body)
-
-    # Assemble final file: write the FastText-style header ("N_words N_dims"),
-    # then copy the body file contents in chunks. This produces a valid .vec
-    # file that downstream functions can parse with .parse_embeddings_header().
-    con_out <- file(filtered_path, "w", encoding = "UTF-8")
-    writeLines(paste(n_kept, n_dims_out), con_out)
-
-    con_body_in <- file(body_path, "r", encoding = "UTF-8")
-    while (length(chunk <- readLines(con_body_in, n = chunk_size, warn = FALSE)) > 0) {
-      writeLines(chunk, con_out)
-    }
-    close(con_body_in)
-    close(con_out)
-    unlink(body_path)
-
-    if (verbose) {
-      cli_alert_success("Filtered vocabulary: {lines_read} -> {n_kept} words (stopwords removed)")
-    }
-  }
-
   return(filtered_path)
 }
 
@@ -1440,8 +1382,8 @@ vectionary_builder <- function(
 #'
 #' @description
 #' Reads the embeddings file and computes projections for ALL words onto the
-#' learned axes. Uses data.table::fread() for fast parsing when available,
-#' with fallback to base R streaming for large files.
+#' learned axes. Uses data.table::fread() to load and project the full
+#' vocabulary in one pass.
 #'
 #' This replicates the Duan et al. (2025) approach where the vectionary can
 #' score any word in the vocabulary.
@@ -1455,20 +1397,6 @@ vectionary_builder <- function(
 #'
 #' @keywords internal
 .project_all_embeddings <- function(axes, dimensions, embeddings_path, verbose = TRUE) {
-
-  # Dispatch to fast (data.table) or streaming (base R) implementation.
-  # Both produce identical results; the choice is purely about performance.
-  if (requireNamespace("data.table", quietly = TRUE)) {
-    return(.project_all_embeddings_fast(axes, dimensions, embeddings_path, verbose))
-  }
-  return(.project_all_embeddings_streaming(axes, dimensions, embeddings_path, verbose))
-}
-
-
-#' Fast projection using data.table::fread (5-10x faster)
-#'
-#' @keywords internal
-.project_all_embeddings_fast <- function(axes, dimensions, embeddings_path, verbose = TRUE) {
 
   header <- .parse_embeddings_header(readLines(embeddings_path, n = 1, warn = FALSE))
   n_dims <- header$n_dims
@@ -1515,7 +1443,7 @@ vectionary_builder <- function(
 
   # Single matrix multiply projects all words onto all axes at once.
   # Result shape: (n_words x n_axes). Each cell is the dot product of a
-  # unit-norm word embedding with a (non-unit-norm) learned axis.
+  # unit-norm word embedding with a unit-norm learned axis = cosine similarity.
   proj_matrix <- embed_matrix %*% axis_matrix
 
   if (verbose) {
@@ -1523,128 +1451,6 @@ vectionary_builder <- function(
   }
 
   # Build result data frame
-  result <- data.frame(word = words, stringsAsFactors = FALSE)
-  for (i in seq_along(dimensions)) {
-    result[[dimensions[i]]] <- proj_matrix[, i]
-  }
-
-  return(result)
-}
-
-
-#' Streaming projection fallback (for systems without data.table)
-#'
-#' @keywords internal
-.project_all_embeddings_streaming <- function(axes, dimensions, embeddings_path, verbose = TRUE) {
-
-  if (verbose) {
-    cli_alert_info("Using streaming projection (install data.table for 5-10x speedup)")
-  }
-
-  # ── Chunk-based collection strategy ──
-  # Collect results as lists of chunks, then combine once at the end with
-  # unlist() / do.call(rbind, ...). This is O(n) total cost.
-  # The naive alternative — growing vectors with c() on each line — is O(n^2)
-  # because R copies the entire vector on each append.
-  words_list <- list()   # list of character vectors (one per chunk)
-  proj_list  <- list()   # list of projection matrices (one per chunk)
-  chunk_idx  <- 0L
-
-  # Open file connection
-  con <- file(embeddings_path, "r", encoding = "UTF-8")
-  on.exit(close(con))
-
-  # Parse header
-  first_line <- readLines(con, n = 1, warn = FALSE)
-  header <- .parse_embeddings_header(first_line)
-
-  if (header$is_header) {
-    if (verbose) {
-      cli_alert_info("Embeddings: {header$parts[1]} words, {header$n_dims} dimensions")
-    }
-  } else {
-    # First line is a word vector — process it
-    if (length(header$parts) > 2) {
-      vector_vals <- as.numeric(header$parts[-1])
-      if (!any(is.na(vector_vals))) {
-        vector_vals <- .unit_norm(vector_vals)
-        chunk_idx <- chunk_idx + 1L
-        words_list[[chunk_idx]] <- header$parts[1]  # already lowercase from filter
-        proj_list[[chunk_idx]] <- matrix(vector_vals, nrow = 1) %*%
-          do.call(cbind, axes[dimensions])
-      }
-    }
-  }
-
-  # Build axis matrix for faster projection
-  axis_matrix <- do.call(cbind, axes[dimensions])
-
-  # Process remaining lines in chunks
-  lines_read <- 0
-  chunk_size <- 50000
-  words_processed <- if (chunk_idx > 0) 1L else 0L
-
-  if (verbose) {
-    cli_alert_info("Projecting all embeddings onto {length(dimensions)} axes...")
-  }
-
-  repeat {
-    lines <- readLines(con, n = chunk_size, warn = FALSE)
-    if (length(lines) == 0) break
-
-    lines_read <- lines_read + length(lines)
-
-    # Pre-allocate for this chunk
-    chunk_words <- character(length(lines))
-    chunk_vectors <- vector("list", length(lines))
-    valid_count <- 0
-
-    for (i in seq_along(lines)) {
-      line <- lines[i]
-      if (nchar(trimws(line)) == 0) next
-
-      parts <- strsplit(line, " ", fixed = TRUE)[[1]]
-      if (length(parts) < 3) next
-
-      vector_vals <- suppressWarnings(as.numeric(parts[-1]))
-
-      if (!any(is.na(vector_vals))) {
-        valid_count <- valid_count + 1
-        chunk_words[valid_count] <- parts[1]  # already lowercase from filter
-        chunk_vectors[[valid_count]] <- vector_vals
-      }
-    }
-
-    # Vectorized projection for entire chunk at once (matrix multiply)
-    if (valid_count > 0) {
-      chunk_words <- chunk_words[1:valid_count]
-      chunk_matrix <- do.call(rbind, chunk_vectors[1:valid_count])
-
-      # Unit-normalize to match axis learning normalization
-      row_norms <- sqrt(rowSums(chunk_matrix^2))
-      row_norms[row_norms == 0] <- 1
-      chunk_matrix <- chunk_matrix / row_norms
-
-      # Store this chunk's results (combined later)
-      chunk_idx <- chunk_idx + 1L
-      words_list[[chunk_idx]] <- chunk_words
-      proj_list[[chunk_idx]]  <- chunk_matrix %*% axis_matrix
-      words_processed <- words_processed + valid_count
-    }
-
-    if (verbose && lines_read %% 500000 == 0) {
-      cli_alert_info("Processed {lines_read} lines, {words_processed} words projected")
-    }
-  }
-
-  if (verbose) {
-    cli_alert_success("Projected {words_processed} words onto all axes")
-  }
-
-  # Combine all chunks into final vectors/matrix in a single pass
-  words <- unlist(words_list, use.names = FALSE)
-  proj_matrix <- do.call(rbind, proj_list)  # stacks chunk matrices vertically
-
   result <- data.frame(word = words, stringsAsFactors = FALSE)
   for (i in seq_along(dimensions)) {
     result[[dimensions[i]]] <- proj_matrix[, i]
@@ -1977,8 +1783,8 @@ vectionary_builder <- function(
 #' @param word_scores Numeric vector of scores for each word
 #' @param lambda Ridge regularization parameter (default: 1.0)
 #'
-#' @return Numeric vector representing the axis. Not unit-normalized; scale encodes
-#'   dictionary scores when used with unit-norm embeddings.
+#' @return Numeric vector representing the learned axis, unit-normalized to length 1.
+#'   Scores from dotting L2-normalized embeddings with this axis are cosine similarities.
 #'
 #' @keywords internal
 .solve_axis_ridge <- function(word_vectors, word_scores, lambda = 1.0) {
@@ -1993,8 +1799,8 @@ vectionary_builder <- function(
   #
   # The L2 penalty $\lambda I$ shrinks the axis toward zero, preventing
   # overfitting when embedding_dims >> n_words. Higher lambda = more shrinkage.
-  # The axis is NOT unit-normalized — its magnitude encodes the dictionary
-  # score scale, so seed words project to approximately their original scores.
+  # The axis is unit-normalized after solving so that projections yield
+  # cosine similarities when used with L2-normalized embeddings.
 
   # crossprod(W) is faster than t(W) %*% W (avoids explicit transpose)
   WtW <- crossprod(W)
@@ -2015,6 +1821,10 @@ vectionary_builder <- function(
     }
   )
 
+  # Unit-normalize for consistency with Duan method and for interpretable
+  # cosine-similarity scores when projecting L2-normalized embeddings
+  axis <- axis / sqrt(sum(axis^2))
+
   return(as.numeric(axis))
 }
 
@@ -2030,8 +1840,8 @@ vectionary_builder <- function(
 #' @param lambda Regularization strength (higher = more regularization)
 #' @param l1_ratio Mixing parameter between L1 and L2 (0 = ridge, 1 = lasso, 0.5 = equal mix)
 #'
-#' @return Numeric vector representing the learned axis. Not unit-normalized; scale
-#'   encodes dictionary scores when used with unit-norm embeddings.
+#' @return Numeric vector representing the learned axis, unit-normalized to length 1.
+#'   Scores from dotting L2-normalized embeddings with this axis are cosine similarities.
 #'
 #' @keywords internal
 .solve_axis_elastic_net <- function(word_vectors, word_scores, lambda = 1.0, l1_ratio = 0.5) {
@@ -2067,6 +1877,10 @@ vectionary_builder <- function(
     cli::cli_alert_warning("Elastic net produced zero axis (lambda too high), falling back to ridge")
     return(.solve_axis_ridge(word_vectors, word_scores, lambda))
   }
+
+  # Unit-normalize for consistency with ridge/Duan and for interpretable
+  # cosine-similarity scores when projecting L2-normalized embeddings
+  axis <- axis / axis_norm
 
   return(as.numeric(axis))
 }
@@ -2438,7 +2252,7 @@ vectionary_builder <- function(
 #'
 #' @description
 #' Evaluates a vectionary built with a specific lambda by checking:
-#' 1. Validity: R² between normalized dictionary scores and projections
+#' 1. Validity: R-squared between normalized dictionary scores and projections
 #' 2. Differentiation: Average correlation between axes (lower = better)
 #'
 #' @param vect A built vectionary object
@@ -2447,7 +2261,7 @@ vectionary_builder <- function(
 #' @param embeddings_path Path to embeddings file (needed for AUC with binary dicts)
 #' @param seed Integer seed for reproducibility (passed to random vector sampling)
 #'
-#' @return List with validity (R² or AUC), differentiation metrics
+#' @return List with validity (R-squared or AUC), differentiation metrics
 #'
 #' @keywords internal
 .validate_lambda <- function(vect, dictionary, dimensions, embeddings_path = NULL, seed) {
@@ -2456,7 +2270,7 @@ vectionary_builder <- function(
   # Binary dictionaries (scores are all 0 or 1): use AUC via Mann-Whitney U
   #   - Measures separation between dictionary words and random background words
   #   - 0.5 = random, 1.0 = perfect separation
-  # Continuous dictionaries (graded scores): use R² (correlation squared)
+  # Continuous dictionaries (graded scores): use R-squared (correlation squared)
   #   - Measures agreement between min-max normalized scores and projections
   first_dim <- dimensions[1]
   dict_scores_check <- dictionary[[first_dim]][!is.na(dictionary[[first_dim]])]
@@ -2491,13 +2305,13 @@ vectionary_builder <- function(
     dim_is_binary <- all(dict_scores %in% c(0, 1))
 
     if (!dim_is_binary) {
-      # Continuous dictionary: R² between min-max normalized scores and projections.
+      # Continuous dictionary: R-squared between min-max normalized scores and projections.
       # Min-max normalization ensures both are on [0,1] before comparing.
       proj_scores <- vect$word_projections[match(common_words, tolower(vect$word_projections$word)), dim]
 
       # If all scores are identical (constant), correlation is undefined → return NA
       if (length(unique(dict_scores)) == 1 || length(unique(proj_scores)) == 1) {
-        cli_alert_warning("Dimension '{dim}': constant scores, R² undefined (returning NA)")
+        cli_alert_warning("Dimension '{dim}': constant scores, R-squared undefined (returning NA)")
         return(NA_real_)
       }
 
@@ -2622,7 +2436,7 @@ vectionary_builder <- function(
     }
   }
 
-  # Detect if using AUC (binary dict) or R² (continuous dict)
+  # Detect if using AUC (binary dict) or R-squared (continuous dict)
   # Binary = all non-NA scores are 0 or 1 (covers both word-list dicts with all 1s
 
   # and data-frame dicts with explicit 0s and 1s after binary_word conversion)
@@ -2636,8 +2450,8 @@ vectionary_builder <- function(
       cli_alert_info("Validity metric: AUC (binary dictionary detected)")
       cli_alert_info("Minimum AUC required: {round(min_validity * 100, 1)}% (50% = random)")
     } else {
-      cli_alert_info("Validity metric: R² (continuous dictionary)")
-      cli_alert_info("Minimum R² required: {round(min_validity * 100, 1)}%")
+      cli_alert_info("Validity metric: R-squared (continuous dictionary)")
+      cli_alert_info("Minimum R-squared required: {round(min_validity * 100, 1)}%")
     }
     cli_text("")
   }
@@ -2681,7 +2495,7 @@ vectionary_builder <- function(
 
     if (verbose) {
       cli_progress_done()
-      metric_label <- if (validation$validity_metric == "auc") "AUC" else "R²"
+      metric_label <- if (validation$validity_metric == "auc") "AUC" else "R-squared"
       if (is.na(validation$differentiation)) {
         cli_alert_info("  {metric_label}: {round(validation$validity * 100, 1)}%")
       } else {
@@ -2729,7 +2543,7 @@ vectionary_builder <- function(
   }
 
   if (verbose) {
-    metric_label <- if (best_result$validity_metric == "auc") "AUC" else "R²"
+    metric_label <- if (best_result$validity_metric == "auc") "AUC" else "R-squared"
     cli_alert_success("Selected lambda = {best_result$lambda}")
     cli_alert_info("  {metric_label}: {round(best_result$validity * 100, 1)}%")
     if (!is.na(best_result$differentiation)) {
@@ -2791,7 +2605,7 @@ vectionary_builder <- function(
   # FastText word norms correlate with word frequency — frequent words have
   # inflated norms that dominate raw dot products. Unit-normalizing moves all
   # vectors to the unit sphere, so projections become cosine-similarity-based.
-  # The axis is NOT unit-normalized (its magnitude encodes dictionary score scale).
+  # The axis is also unit-normalized, but later, inside the .solve_axis_* functions.
   word_vectors <- lapply(word_vectors, .unit_norm)
 
   # Not all dictionary words exist in the embeddings (misspellings, rare words)

@@ -10,7 +10,8 @@ dictionary_compare(
   embeddings,
   dimension = NULL,
   language = "en",
-  n_show = 15
+  n_show = 15,
+  pool = 200
 )
 
 \method{print}{dictionary_compare}(x, ...)
@@ -24,31 +25,46 @@ embeddings file. Rows are unit-normalized internally.}
 
 \item{dimension}{Name of the dimension column to read (when graded).}
 
-\item{language}{Language code for the stopword list used to clean the disagreement
-word-lists (default \code{"en"}).}
+\item{language}{Language code for the stopword list AND the hunspell spellcheck used to clean
+the word-lists (default \code{"en"}); any language in the wooorm/dictionaries repo (e.g.
+\code{"es"}, \code{"pt"}). A non-English code keeps accented words and validates them against
+that language, rather than silently filtering to English tokens.}
 
-\item{n_show}{Number of words to show on each side of a disagreement list (default 15).}
+\item{n_show}{Number of words to show per list (default 15).}
+
+\item{pool}{Size of the disagreement candidate pool drawn by gap before each side is
+re-ranked by the capturing list's own score (default 200). Larger admits milder
+disagreements into the ranking; smaller keeps only the sharpest gaps.}
 
 \item{x}{A \code{dictionary_compare} object.}
 
 \item{...}{Unused.}
 }
 \value{
-An object of class \code{"dictionary_compare"}: the \code{heading} cosine matrix,
-  the cross-seed \code{auc} matrix, and (for two dictionaries) the \code{disagree} lists.
+An object of class \code{"dictionary_compare"}: the \code{heading} cosine matrix, the
+  cross-seed \code{auc} matrix, the \code{summary} (similarity \code{order}, per-list
+  \code{mean_cos}, \code{umbrella} / \code{distinct} lists, \code{closest} pair, \code{merge}
+  candidates), and -- depending on the count -- the two-list \code{disagree} lists or the
+  per-list one-vs-rest \code{signature} lists.
 }
 \description{
 Shows how a set of candidate operationalisations of the same construct relate, on the
 parameter-free operative axis. Reports the \strong{heading cosine} between every pair of
 axes, a threshold-free \strong{cross-seed AUC} (can each axis rank its own seeds above a
 rival's -- the rival's seeds are the negatives, so there is no neighbourhood radius to
-choose), and, for exactly two dictionaries, the \strong{disagreement word-lists}: the
-vocabulary ranked by the difference of the two axis projections, so the top words are
-what the first list captures and the second misses, and the bottom vice versa.
+choose), and \strong{word-level evidence}. For exactly two dictionaries that is the signed
+\strong{disagreement word-lists}; for more than two it is each list's \strong{one-vs-rest
+signature} -- the words it scores high that the BEST rival still scores lower, i.e. what is
+distinctive to that list against all the others. Either way the words shown are those the
+capturing list scores HIGHEST among genuine gaps, the terms most central to it that the
+rival(s) miss, not merely the widest raw gap (which surfaces words weak in both). A
+\strong{readability summary} also orders the matrices so near-duplicate lists sit together,
+names the broadest / most distinct list, the closest pair, and flags any pair with
+\eqn{|\cos| \ge 0.9} as a merge candidate.
 
 Currently \strong{unipolar} dictionaries only: the cross-seed AUC and the signed
-disagreement list assume every seed projects high on its own axis, which a bipolar
-(pole-difference) axis violates. Compare each pole as its own unipolar list instead.
+disagreement / signature lists assume every seed projects high on its own axis, which a
+bipolar (pole-difference) axis violates. Compare each pole as its own unipolar list instead.
 }
 \examples{
 \dontrun{

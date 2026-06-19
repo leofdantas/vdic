@@ -12,10 +12,12 @@ dictionary_eval(
   freq_sorted = NULL,
   t_weak = 1.5,
   t_twin = 0.8,
-  t_gen = 0.4
+  t_gen = 0.4,
+  spellcheck = TRUE,
+  language = "en"
 )
 
-\method{print}{dictionary_eval}(x, ...)
+\method{print}{dictionary_eval}(x, ..., max_per_flag = 12)
 }
 \arguments{
 \item{dictionary}{A data.frame with a \code{word} column and one or more numeric
@@ -46,9 +48,20 @@ fellow seed (default 0.80).}
 \item{t_gen}{\code{|cos|} to the vocabulary mean direction above which a seed is flagged
 \code{ambiguous-generic} (default 0.40).}
 
+\item{spellcheck}{If \code{TRUE} (default), flag seeds that fail a \code{hunspell}
+spellcheck as \code{nonword} (the engine \code{\link{vectionary_builder}} uses to clean
+vocabularies). Silently skipped if \code{hunspell} or the language dictionary is missing.}
+
+\item{language}{Language code for the spellcheck dictionary (default \code{"en"}); any
+language in the wooorm/dictionaries repo (e.g. \code{"es"}, \code{"pt"}).}
+
 \item{x}{A \code{dictionary_eval} object.}
 
 \item{...}{Unused.}
+
+\item{max_per_flag}{Maximum flagged words listed per audit category when printing; any
+beyond that are summarized as a count (default 12). The full per-word table is always in
+the returned object's \code{cards}.}
 }
 \value{
 An object of class \code{"dictionary_eval"} that prints a formatted report card.
@@ -60,8 +73,9 @@ An object of class \code{"dictionary_eval"} that prints a formatted report card.
 Describes a seed word list as a measurement axis using only cosine similarity read
 against the full embedding vocabulary. Reports each pole's \strong{Coherence} (how
 tightly the seeds point one way -- the mean of the per-word \code{on_axis} values) and a
-per-word \strong{audit} that flags each seed as \code{redundant} (a near-duplicate of
-another seed), \code{weak-offcentre} (a low outlier within its pole),
+per-word \strong{audit} that flags each seed as \code{nonword} (fails the language's
+hunspell spellcheck -- a junk token from an over-broad stem), \code{redundant} (a
+near-duplicate of another seed), \code{weak-offcentre} (a low outlier within its pole),
 \code{ambiguous-generic} (leaning into the vocabulary's average direction), or
 \code{ambiguous-xpole} (closer to the other pole's centroid, bipolar only), plus
 frequency / length / generic-direction \strong{confounds} on the operative axis.

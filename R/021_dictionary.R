@@ -33,8 +33,10 @@
       embeddings, header = FALSE, skip = if (header$is_header) 1L else 0L,
       sep = " ", quote = "", colClasses = c("character", rep("numeric", header$n_dims)),
       showProgress = FALSE, data.table = TRUE)
-    embeddings <- as.matrix(dt[, 2:(header$n_dims + 1), with = FALSE])
-    rownames(embeddings) <- dt[[1]]
+    words <- dt[[1]]                                  # grab rownames first, then free the
+    embeddings <- as.matrix(dt[, 2:(header$n_dims + 1), with = FALSE])  # data.table copy so it
+    rm(dt)                                            # is not held alongside the matrix below
+    rownames(embeddings) <- words
   }
   if (!is.matrix(embeddings) || is.null(rownames(embeddings)))
     cli_abort(c("{.arg embeddings} must be a matrix with rownames (the vocabulary), or a path to a FastText {.file .vec} / GloVe or word2vec {.file .txt} file.",
@@ -44,7 +46,29 @@
   # are stopwords dropped downstream anyway.
   na_word <- is.na(rownames(embeddings))
   if (any(na_word)) embeddings <- embeddings[!na_word, , drop = FALSE]
-  embeddings / sqrt(rowSums(embeddings^2))
+  .normalize_rows(embeddings)
+}
+
+# Row-normalize to unit length with a BOUNDED memory footprint. The naive
+# `M / sqrt(rowSums(M^2))` allocates TWO full-size temporaries (the squared matrix and the
+# quotient) -- on a multi-GB embedding matrix that triples peak RAM. Instead: accumulate the
+# norms one row-block at a time (so the squared temporary is one block, not the whole matrix),
+# short-circuit with no copy when the rows are already unit length, and otherwise divide in
+# place block by block (so at most one copy is ever made, and only if `M` is shared).
+.normalize_rows <- function(M, block = 100000L) {
+  n <- nrow(M)
+  norms <- numeric(n)
+  for (s in seq.int(1L, n, by = block)) {
+    e <- min(s + block - 1L, n)
+    norms[s:e] <- sqrt(rowSums(M[s:e, , drop = FALSE]^2))
+  }
+  norms[norms == 0] <- 1                              # leave zero-vectors untouched (no 0/0)
+  if (max(abs(norms - 1)) < 1e-6) return(M)           # already unit -> no allocation at all
+  for (s in seq.int(1L, n, by = block)) {
+    e <- min(s + block - 1L, n)
+    M[s:e, ] <- M[s:e, , drop = FALSE] / norms[s:e]
+  }
+  M
 }
 
 # Normalize a dictionary argument to a data.frame with a `word` column and >= 1
@@ -145,20 +169,34 @@
 # captured to text; a bare print() would escape cli's sink).
 .show <- function(...) cli_verbatim(capture.output(print(...)))
 
-# hunspell spell-check that degrades to a no-op if the package is absent, checked at CALL
-# time (a package-load-time conditional would bake in whatever was installed at build).
-.hcheck <- function(w)
-  if (requireNamespace("hunspell", quietly = TRUE)) hunspell::hunspell_check(w) else rep(TRUE, length(w))
+# Resolve a hunspell dictionary OBJECT for `language`, or NA when spellcheck cannot run (the
+# caller then skips it). English uses hunspell's built-in en_US (no download); any other language
+# fetches/caches the same wooorm dictionary vectionary_builder() uses. Checked at CALL time, and
+# LANGUAGE-AWARE so a Spanish run is not silently spell-checked against English (which would keep
+# only English tokens and drop every accented Spanish word).
+.resolve_hunspell <- function(language) {
+  if (!requireNamespace("hunspell", quietly = TRUE)) {
+    cli_warn("Spellcheck skipped: the {.pkg hunspell} package is not installed.")
+    return(NA)
+  }
+  if (is.null(language) || identical(language, "en")) return(hunspell::dictionary("en_US"))
+  tryCatch(.get_hunspell_dict(language, verbose = FALSE),
+    error = function(e) { cli_warn(c(
+      "Spellcheck skipped: no hunspell dictionary for {.val {language}}.",
+      "i" = "Cache it -- see {.url https://github.com/wooorm/dictionaries}.")); NA })
+}
 
 # Walk a ranked vocabulary index and return the first `k` indices that are clean candidate
-# words: alphabetic, >= 3 chars, not a stopword, a real dictionary word, not already a seed.
-# LAZY -- it spellchecks only as far down the ranking as it must, never the whole vocabulary.
-.take_clean <- function(idx, vocab, exclude, stop, k) {
+# words: a LETTER-only token (Unicode via [[:alpha:]], so accented / non-Latin words survive),
+# >= 3 chars, not a stopword, not already a seed, and -- when a hunspell `dict` is supplied --
+# a real word in THAT language. LAZY: spellchecks only as far down the ranking as it must.
+.take_clean <- function(idx, vocab, exclude, stop, k, dict = NA) {
+  do_spell <- !identical(dict, NA)
   out <- integer(0)
   for (i in idx) {
     w <- vocab[i]
-    if (w %in% exclude || nchar(w) < 3L || !grepl("^[a-z]+$", w) || w %in% stop) next
-    if (!.hcheck(w)) next
+    if (w %in% exclude || nchar(w) < 3L || !grepl("^[[:alpha:]]+$", w) || w %in% stop) next
+    if (do_spell && !hunspell::hunspell_check(w, dict = dict)) next
     out <- c(out, i)
     if (length(out) >= k) break
   }
@@ -170,9 +208,11 @@
 # the pole ((on - median)/mad), so the weak flag is pole-relative and travels across
 # embeddings; generic = |cos| to the vocabulary mean direction (embedding centrality, NOT
 # usage frequency); twin = nearest other seed (redundancy); xpole = cos to the OPPOSITE
-# pole's centroid -- same footing as on_axis (bipolar leakage). verdict is a soft hint.
+# pole's centroid -- same footing as on_axis (bipolar leakage). An optional `nonword` mask
+# (language-aware hunspell spellcheck) overrides every other flag: a junk token is a data-
+# quality problem first. verdict is a soft hint.
 .word_audit <- function(words, W, g, opp_W = NULL,
-                        t_weak = 1.5, t_twin = 0.80, t_gen = 0.40) {
+                        t_weak = 1.5, t_twin = 0.80, t_gen = 0.40, nonword = NULL) {
   cc  <- colMeans(W); cc <- cc / sqrt(sum(cc^2))
   on  <- as.numeric(W %*% cc)
   gen <- abs(as.numeric(W %*% g))
@@ -194,25 +234,27 @@
   v[z < -t_weak]                     <- "weak-offcentre"
   v[gen > t_gen]                     <- "ambiguous-generic"   # absolute: generic is an
   if (!is.null(opp_W)) v[xp > on]    <- "ambiguous-xpole"     # embedding-comparable confound
+  if (!is.null(nonword)) v[as.logical(nonword)] <- "nonword"  # data-quality flag overrides all
   out$verdict <- v
-  sev <- c(`ambiguous-xpole` = 1, `ambiguous-generic` = 2, `weak-offcentre` = 3,
+  sev <- c(nonword = 0, `ambiguous-xpole` = 1, `ambiguous-generic` = 2, `weak-offcentre` = 3,
            redundant = 4, anchor = 5)
   # within a verdict group, order by THAT verdict's decisive metric (worst first)
-  key2 <- ifelse(v == "ambiguous-generic", -out$generic,
+  key2 <- ifelse(v == "nonword",           -out$on_axis,
+          ifelse(v == "ambiguous-generic", -out$generic,
           ifelse(v == "weak-offcentre",    out$z,
           ifelse(v == "redundant",         -out$twin,
-          ifelse(v == "ambiguous-xpole",   -xp, 0))))
+          ifelse(v == "ambiguous-xpole",   -xp, 0)))))
   out[order(sev[v], key2), ]
 }
 
 #- dictionary_eval(): the report card -----------------------------------------
 # One pole's whole card: coherence + per-word audit.
-.dict_card <- function(words, stems, E, g, opp_words, params) {
+.dict_card <- function(words, stems, E, g, opp_words, params, nonword = NULL) {
   W     <- E[words, , drop = FALSE]
   opp_W <- if (length(opp_words)) E[opp_words, , drop = FALSE] else NULL
   list(
     coherence = .coherence_length(W),
-    audit     = .word_audit(words, W, g, opp_W, params$t_weak, params$t_twin, params$t_gen),
+    audit     = .word_audit(words, W, g, opp_W, params$t_weak, params$t_twin, params$t_gen, nonword),
     n         = length(words), n_stems = length(unique(stems)))
 }
 
@@ -222,8 +264,9 @@
 #' Describes a seed word list as a measurement axis using only cosine similarity read
 #' against the full embedding vocabulary. Reports each pole's \strong{Coherence} (how
 #' tightly the seeds point one way -- the mean of the per-word \code{on_axis} values) and a
-#' per-word \strong{audit} that flags each seed as \code{redundant} (a near-duplicate of
-#' another seed), \code{weak-offcentre} (a low outlier within its pole),
+#' per-word \strong{audit} that flags each seed as \code{nonword} (fails the language's
+#' hunspell spellcheck -- a junk token from an over-broad stem), \code{redundant} (a
+#' near-duplicate of another seed), \code{weak-offcentre} (a low outlier within its pole),
 #' \code{ambiguous-generic} (leaning into the vocabulary's average direction), or
 #' \code{ambiguous-xpole} (closer to the other pole's centroid, bipolar only), plus
 #' frequency / length / generic-direction \strong{confounds} on the operative axis.
@@ -256,6 +299,11 @@
 #'   fellow seed (default 0.80).
 #' @param t_gen \code{|cos|} to the vocabulary mean direction above which a seed is flagged
 #'   \code{ambiguous-generic} (default 0.40).
+#' @param spellcheck If \code{TRUE} (default), flag seeds that fail a \code{hunspell}
+#'   spellcheck as \code{nonword} (the engine \code{\link{vectionary_builder}} uses to clean
+#'   vocabularies). Silently skipped if \code{hunspell} or the language dictionary is missing.
+#' @param language Language code for the spellcheck dictionary (default \code{"en"}); any
+#'   language in the wooorm/dictionaries repo (e.g. \code{"es"}, \code{"pt"}).
 #'
 #' @return An object of class \code{"dictionary_eval"} that prints a formatted report card.
 #'   Fields include the per-pole cards (\code{cards}, each with \code{coherence} and the
@@ -278,12 +326,26 @@
 #' @importFrom stats cor mad median
 #' @export
 dictionary_eval <- function(dictionary, embeddings, dimension = NULL,
-                            freq_sorted = NULL, t_weak = 1.5, t_twin = 0.80, t_gen = 0.40) {
+                            freq_sorted = NULL, t_weak = 1.5, t_twin = 0.80, t_gen = 0.40,
+                            spellcheck = TRUE, language = "en") {
   E         <- .resolve_embeddings(embeddings)
   vocab     <- rownames(E)
   seed_df   <- .dict_seed_df(dictionary, dimension, vocab)
   dimension <- attr(seed_df, "dimension")
   params    <- list(t_weak = t_weak, t_twin = t_twin, t_gen = t_gen)
+
+  # Language-aware hunspell spellcheck of the seeds (same engine vectionary_builder() uses to
+  # clean vocabularies); junk tokens from over-broad stems get a `nonword` flag. Degrades to
+  # no flag if hunspell or the language dictionary is unavailable -- eval must not crash.
+  nonword <- NULL
+  if (spellcheck) {
+    hdict <- .resolve_hunspell(language)
+    if (!identical(hdict, NA)) {
+      nonword <- !hunspell::hunspell_check(seed_df$word, dict = hdict)
+      names(nonword) <- seed_df$word
+    }
+  }
+  sub_nw <- function(w) if (is.null(nonword)) NULL else nonword[w]
 
   pos <- seed_df$score > 0; neg <- seed_df$score < 0
   bipolar <- any(pos) && any(neg)
@@ -295,12 +357,12 @@ dictionary_eval <- function(dictionary, embeddings, dimension = NULL,
   if (bipolar) {
     pw <- seed_df$word[pos]; ps <- seed_df$stem[pos]
     nw <- seed_df$word[neg]; ns <- seed_df$stem[neg]
-    cards <- list(`+` = .dict_card(pw, ps, E, g, nw, params),
-                  `-` = .dict_card(nw, ns, E, g, pw, params))
+    cards <- list(`+` = .dict_card(pw, ps, E, g, nw, params, sub_nw(pw)),
+                  `-` = .dict_card(nw, ns, E, g, pw, params, sub_nw(nw)))
     cpos <- colMeans(E[pw, , drop = FALSE]); cneg <- colMeans(E[nw, , drop = FALSE])
     contrast <- sum(cpos * cneg) / sqrt(sum(cpos^2) * sum(cneg^2))  # cos between pole means
   } else {
-    cards <- list(`.` = .dict_card(seed_df$word, seed_df$stem, E, g, character(0), params))
+    cards <- list(`.` = .dict_card(seed_df$word, seed_df$stem, E, g, character(0), params, sub_nw(seed_df$word)))
     contrast <- NA_real_
   }
   ref <- .operative_axis(E[seed_df$word, , drop = FALSE], pos, neg)
@@ -308,7 +370,7 @@ dictionary_eval <- function(dictionary, embeddings, dimension = NULL,
   proj <- as.numeric(E %*% ref)
   use_freq <- if (is.null(freq_sorted)) is.unsorted(vocab) else isTRUE(freq_sorted)
   structure(list(
-    dimension = dimension, bipolar = bipolar, cards = cards, contrast = contrast,
+    dimension = dimension, language = language, bipolar = bipolar, cards = cards, contrast = contrast,
     gen_align = abs(sum(ref * g)),
     cor_freq  = if (use_freq) cor(proj, seq_len(nrow(E)), method = "spearman") else NA_real_,
     cor_len   = cor(proj, nchar(vocab), method = "spearman"), freq_used = use_freq,
@@ -319,9 +381,12 @@ dictionary_eval <- function(dictionary, embeddings, dimension = NULL,
 
 #' @rdname dictionary_eval
 #' @param x A \code{dictionary_eval} object.
+#' @param max_per_flag Maximum flagged words listed per audit category when printing; any
+#'   beyond that are summarized as a count (default 12). The full per-word table is always in
+#'   the returned object's \code{cards}.
 #' @param ... Unused.
 #' @export
-print.dictionary_eval <- function(x, ...) {
+print.dictionary_eval <- function(x, ..., max_per_flag = 12) {
   cli_h1("Dictionary report card: {.field {x$dimension}}")
   matched <- sum(vapply(x$cards, function(card) card$n_stems, integer(1)))
   if (x$bipolar)
@@ -329,35 +394,44 @@ print.dictionary_eval <- function(x, ...) {
   else
     cli_alert_info("{x$n_seed} seeds (unipolar) from {matched}/{x$n_stems_total} stems matched")
 
-  # each flagged word rendered with its DECISIVE number, inserted as plain data (no cli
-  # markup inside, so a stray brace in a token can never break the template)
-  vfmt <- function(sub, v) switch(v,
-    "ambiguous-generic" = sprintf("%s (|cos| %.2f)", sub$word, sub$generic),
-    "weak-offcentre"    = sprintf("%s (z %.1f)",     sub$word, sub$z),
-    "redundant"         = sprintf("%s (~%s %.2f)",   sub$word, sub$twin_word, sub$twin),
-    "ambiguous-xpole"   = sprintf("%s (opp-centroid %.2f, near %s)", sub$word, sub$xpole, sub$xpole_word))
-  vlab <- c(`ambiguous-xpole`   = "closer to the other pole",
+  # Each flagged seed becomes one tabular ROW carrying its decisive metric, so a large audit
+  # prints as a compact table (worst-first, capped per flag) instead of a wall of prose. The
+  # full per-word audit stays in x$cards. names(vlab) doubles as the severity order.
+  vlab <- c(nonword             = sprintf("not in the %s dictionary (hunspell spellcheck)", x$language),
+            `ambiguous-xpole`   = "closer to the other pole's centroid",
             `ambiguous-generic` = "leans to the vocabulary's average (central / unmarked) direction",
-            `weak-offcentre`    = "off-centre in their pole",
+            `weak-offcentre`    = "low outlier within its pole",
             redundant           = "near-duplicate of another seed")
+  vrow <- function(sub, v) {
+    r <- data.frame(word = sub$word, flag = v, stringsAsFactors = FALSE)
+    if (v == "nonword")                { r$metric <- "on";    r$value <- sub$on_axis; r$note <- "non-word" }
+    else if (v == "ambiguous-generic") { r$metric <- "|cos|"; r$value <- sub$generic; r$note <- "" }
+    else if (v == "weak-offcentre")    { r$metric <- "z";     r$value <- sub$z;       r$note <- "" }
+    else if (v == "redundant")         { r$metric <- "cos";   r$value <- sub$twin;    r$note <- paste0("~", sub$twin_word) }
+    else                               { r$metric <- "cos";   r$value <- sub$xpole;   r$note <- paste0("near ", sub$xpole_word) }
+    r
+  }
 
   pole_block <- function(card, title) {
     cli_h2(title)
-    cli_text("{.strong Coherence} {.val {round(card$coherence, 3)}} {.emph (= mean of the on-axis column below; tightness 0-1, size-sensitive)}")
+    cli_text("{.strong Coherence} {.val {round(card$coherence, 3)}} {.emph (mean seed-to-centroid cosine; tightness 0-1, size-sensitive)}")
     aud <- card$audit; n_ok <- sum(aud$verdict == "anchor")
     if (n_ok == nrow(aud)) {
       cli_alert_success("{.strong Word audit}: all {nrow(aud)} seeds are clean anchors")
-    } else {
-      cli_text("{.strong Word audit}: {.val {n_ok}}/{nrow(aud)} clean anchors -- the rest to review:")
-      cli_ul()
-      for (v in names(vlab)) {
-        sub <- aud[aud$verdict == v, ]
-        if (!nrow(sub)) next
-        words <- paste(vfmt(sub, v), collapse = ", ")
-        cli_li("{.strong {v}} {.emph ({vlab[[v]]})}: {words}")
-      }
-      cli_end()
+      return(invisible())
     }
+    flagged <- aud[aud$verdict != "anchor", ]
+    fired   <- intersect(names(vlab), flagged$verdict)            # severity order, fired only
+    counts  <- vapply(fired, function(v) sum(flagged$verdict == v), integer(1))
+    cnt_str <- paste(sprintf("%s %d", fired, counts), collapse = ", ")
+    cli_text("{.strong Word audit}: {.val {n_ok}}/{nrow(aud)} clean anchors; {.val {nrow(flagged)}} flagged {.emph ({cnt_str})}")
+    tbl <- do.call(rbind, lapply(fired, function(v)               # worst max_per_flag per flag
+      head(vrow(flagged[flagged$verdict == v, ], v), max_per_flag)))
+    .show(tbl, row.names = FALSE)
+    leg_str <- paste(sprintf("%s = %s", fired, vlab[fired]), collapse = "; ")
+    cli_text("{.emph {leg_str}}")
+    if (any(counts > max_per_flag))
+      cli_text("{.emph Worst {max_per_flag} shown per flag; full per-word table in {.code $cards}.}")
   }
   if (x$bipolar) {
     pole_block(x$cards[["+"]], "High pole (+)")
@@ -410,27 +484,42 @@ print.dictionary_eval <- function(x, ...) {
 #' parameter-free operative axis. Reports the \strong{heading cosine} between every pair of
 #' axes, a threshold-free \strong{cross-seed AUC} (can each axis rank its own seeds above a
 #' rival's -- the rival's seeds are the negatives, so there is no neighbourhood radius to
-#' choose), and, for exactly two dictionaries, the \strong{disagreement word-lists}: the
-#' vocabulary ranked by the difference of the two axis projections, so the top words are
-#' what the first list captures and the second misses, and the bottom vice versa.
+#' choose), and \strong{word-level evidence}. For exactly two dictionaries that is the signed
+#' \strong{disagreement word-lists}; for more than two it is each list's \strong{one-vs-rest
+#' signature} -- the words it scores high that the BEST rival still scores lower, i.e. what is
+#' distinctive to that list against all the others. Either way the words shown are those the
+#' capturing list scores HIGHEST among genuine gaps, the terms most central to it that the
+#' rival(s) miss, not merely the widest raw gap (which surfaces words weak in both). A
+#' \strong{readability summary} also orders the matrices so near-duplicate lists sit together,
+#' names the broadest / most distinct list, the closest pair, and flags any pair with
+#' \eqn{|\cos| \ge 0.9} as a merge candidate.
 #'
 #' Currently \strong{unipolar} dictionaries only: the cross-seed AUC and the signed
-#' disagreement list assume every seed projects high on its own axis, which a bipolar
-#' (pole-difference) axis violates. Compare each pole as its own unipolar list instead.
+#' disagreement / signature lists assume every seed projects high on its own axis, which a
+#' bipolar (pole-difference) axis violates. Compare each pole as its own unipolar list instead.
 #'
 #' @param dictionaries A named list of two or more dictionaries (each in any format
 #'   \code{\link{dictionary_eval}} accepts).
 #' @param embeddings A numeric matrix with vocabulary \code{rownames}, or a path to an
 #'   embeddings file. Rows are unit-normalized internally.
 #' @param dimension Name of the dimension column to read (when graded).
-#' @param language Language code for the stopword list used to clean the disagreement
-#'   word-lists (default \code{"en"}).
-#' @param n_show Number of words to show on each side of a disagreement list (default 15).
+#' @param language Language code for the stopword list AND the hunspell spellcheck used to clean
+#'   the word-lists (default \code{"en"}); any language in the wooorm/dictionaries repo (e.g.
+#'   \code{"es"}, \code{"pt"}). A non-English code keeps accented words and validates them against
+#'   that language, rather than silently filtering to English tokens.
+#' @param n_show Number of words to show per list (default 15).
+#' @param pool Size of the disagreement candidate pool drawn by gap before each side is
+#'   re-ranked by the capturing list's own score (default 200). Larger admits milder
+#'   disagreements into the ranking; smaller keeps only the sharpest gaps.
 #'
-#' @return An object of class \code{"dictionary_compare"}: the \code{heading} cosine matrix,
-#'   the cross-seed \code{auc} matrix, and (for two dictionaries) the \code{disagree} lists.
+#' @return An object of class \code{"dictionary_compare"}: the \code{heading} cosine matrix, the
+#'   cross-seed \code{auc} matrix, the \code{summary} (similarity \code{order}, per-list
+#'   \code{mean_cos}, \code{umbrella} / \code{distinct} lists, \code{closest} pair, \code{merge}
+#'   candidates), and -- depending on the count -- the two-list \code{disagree} lists or the
+#'   per-list one-vs-rest \code{signature} lists.
 #'
 #' @seealso \code{\link{dictionary_eval}}, \code{\link{dictionary_suggest}}.
+#' @importFrom stats as.dist hclust
 #'
 #' @examples
 #' \dontrun{
@@ -439,7 +528,7 @@ print.dictionary_eval <- function(x, ...) {
 #'
 #' @export
 dictionary_compare <- function(dictionaries, embeddings, dimension = NULL,
-                               language = "en", n_show = 15) {
+                               language = "en", n_show = 15, pool = 200) {
   if (!is.list(dictionaries) || length(dictionaries) < 2)
     cli_abort("{.arg dictionaries} must be a list of 2 or more dictionaries.")
   if (is.null(names(dictionaries)))
@@ -447,6 +536,7 @@ dictionary_compare <- function(dictionaries, embeddings, dimension = NULL,
   E     <- .resolve_embeddings(embeddings)
   vocab <- rownames(E)
   stop  <- .get_stopwords(language)
+  hdict <- .resolve_hunspell(language)             # language-aware word cleaning (NA => skip)
 
   sds <- lapply(dictionaries, function(d) .dict_seed_df(d, dimension, vocab))
   # Cross-seed AUC and the signed disagreement list assume every seed projects HIGH on its own
@@ -470,18 +560,55 @@ dictionary_compare <- function(dictionaries, embeddings, dimension = NULL,
   for (i in seq_len(k)) for (j in seq_len(k)) if (i != j)       # axis i ranks ITS seeds
     auc[i, j] <- .auc_one(projs[[i]], inseed[[i]], inseed[[j]]) # above j's seeds
 
-  disagree <- NULL
-  if (k == 2) {
-    pa <- projs[[1]]; pb <- projs[[2]]
-    excl <- c(sds[[1]]$word, sds[[2]]$word); d <- pa - pb
+  # Word-level evidence. Shared rule: POOL the biggest gaps by .take_clean (so the rival genuinely
+  # misses), KEEP only words whose gap points the capturing way (the clean walk can reach words the
+  # rival scores higher), then RANK by the CAPTURING list's own score -- "important to this list,
+  # not the other", not the widest raw gap (which surfaces words weak in both).
+  excl   <- unlist(lapply(sds, `[[`, "word"), use.names = FALSE)
+  top_by <- function(pool_idx, p, keep) {
+    pool_idx <- pool_idx[keep[pool_idx]]
+    head(pool_idx[order(p[pool_idx], decreasing = TRUE)], n_show)
+  }
+  disagree <- signature <- NULL
+  if (k == 2) {                                                 # two lists: the signed pair
+    pa <- projs[[1]]; pb <- projs[[2]]; d <- pa - pb
     mk <- function(idx) data.frame(word = vocab[idx], projA = round(pa[idx], 3),
       projB = round(pb[idx], 3), gap = round(d[idx], 3), row.names = NULL)
-    disagree <- list(
-      a_not_b = mk(.take_clean(order(d, decreasing = TRUE), vocab, excl, stop, n_show)),
-      b_not_a = mk(.take_clean(order(d), vocab, excl, stop, n_show)))
+    pool_ab <- .take_clean(order(d, decreasing = TRUE), vocab, excl, stop, pool, hdict)
+    pool_ba <- .take_clean(order(d), vocab, excl, stop, pool, hdict)
+    disagree <- list(a_not_b = mk(top_by(pool_ab, pa, d > 0)),
+                     b_not_a = mk(top_by(pool_ba, pb, d < 0)))
+  } else {                                                      # >2 lists: one-vs-rest signatures
+    signature <- lapply(seq_len(k), function(i) {               # words list i scores high that the
+      rest   <- do.call(pmax, projs[-i])                        # BEST rival still misses
+      g      <- projs[[i]] - rest
+      pool_i <- .take_clean(order(g, decreasing = TRUE), vocab, excl, stop, pool, hdict)
+      idx    <- top_by(pool_i, projs[[i]], g > 0)
+      data.frame(word = vocab[idx], score = round(projs[[i]][idx], 3),
+        rival = round(rest[idx], 3), gap = round(g[idx], 3), row.names = NULL)
+    })
+    names(signature) <- names(axes)
   }
+
+  # Readability summary of the axis matrix: a similarity ordering (so near-duplicate lists sit
+  # together), each list's mean |cos| to the others (umbrella = highest, most distinct = lowest),
+  # the closest pair, and any near-duplicate pairs (|cos| >= 0.9) worth merging.
+  off <- heading; diag(off) <- NA_real_
+  mean_cos <- colMeans(off, na.rm = TRUE)
+  ut <- heading; ut[lower.tri(ut, diag = TRUE)] <- NA_real_
+  cpair <- which(ut == max(ut, na.rm = TRUE), arr.ind = TRUE)[1, ]
+  mrg <- which(ut >= 0.9, arr.ind = TRUE)
+  summ <- list(
+    order    = if (k > 2) hclust(as.dist(1 - heading))$order else seq_len(k),
+    mean_cos = round(mean_cos, 3),
+    umbrella = names(axes)[which.max(mean_cos)],
+    distinct = names(axes)[which.min(mean_cos)],
+    closest  = list(pair = names(axes)[cpair], cos = round(max(ut, na.rm = TRUE), 3)),
+    merge    = if (nrow(mrg)) cbind(names(axes)[mrg[, 1]], names(axes)[mrg[, 2]]) else NULL)
+
   structure(list(names = names(axes), heading = round(heading, 3), auc = round(auc, 3),
-    disagree = disagree, dimension = attr(sds[[1]], "dimension")),
+    disagree = disagree, signature = signature, summary = summ,
+    dimension = attr(sds[[1]], "dimension")),
     class = "dictionary_compare")
 }
 
@@ -491,25 +618,39 @@ dictionary_compare <- function(dictionaries, embeddings, dimension = NULL,
 #' @export
 print.dictionary_compare <- function(x, ...) {
   cli_h1("Dictionary comparison: {.field {x$dimension}}")
+  nm <- x$names; s <- x$summary; ord <- s$order
   if (!is.null(x$disagree)) {                                  # headline read for a pair
-    nm <- x$names; h <- x$heading[1, 2]
+    h <- x$heading[1, 2]
     tag <- if (h < 0.3) "near-orthogonal -- distinct constructs"
            else if (h < 0.6) "partly overlapping" else "largely the same axis"
     cli_alert_info("{.strong {nm[1]}} vs {.strong {nm[2]}}: heading |cos| {.val {h}} -- {tag}")
+  } else {                                                     # headline read for many
+    cli_alert_info("{.strong {s$umbrella}} is the broadest (mean |cos| {.val {s$mean_cos[[s$umbrella]]}}); {.strong {s$distinct}} the most distinct ({.val {s$mean_cos[[s$distinct]]}}). Closest pair: {.strong {s$closest$pair[1]}} & {.strong {s$closest$pair[2]}} ({.val {s$closest$cos}}).")
+    if (!is.null(s$merge)) for (r in seq_len(nrow(s$merge)))
+      cli_alert_warning("{.strong {s$merge[r, 1]}} and {.strong {s$merge[r, 2]}} are near-duplicates (|cos| >= 0.9) -- consider merging.")
   }
-  cli_h2("Heading |cos| {.emph (1 = same axis, 0 = orthogonal)}")
-  .show(round(x$heading, 3))
+  ttl <- if (length(ord) > 2) " (1 = same axis, 0 = orthogonal; ordered by similarity)" else " (1 = same axis, 0 = orthogonal)"
+  cli_h2("Heading |cos| {.emph {ttl}}")
+  .show(round(x$heading[ord, ord, drop = FALSE], 3))
   cli_h2("Cross-seed AUC {.emph (row axis ranks ITS seeds above the column's; ~.5 = interchangeable, -- = self)}")
   am <- formatC(x$auc, format = "f", digits = 3)              # the i==i self-comparison is
   dim(am) <- dim(x$auc); dimnames(am) <- dimnames(x$auc)      # undefined -> show a dash, not NA
   am[is.na(x$auc)] <- "-"
-  .show(am, quote = FALSE)
+  .show(am[ord, ord, drop = FALSE], quote = FALSE)
   if (!is.null(x$disagree)) {
-    nm <- x$names
-    cli_h2("{.strong {nm[1]}} captures, {.strong {nm[2]}} misses {.emph (ranked by score gap)}")
+    cli_h2("{.strong {nm[1]}} captures, {.strong {nm[2]}} misses {.emph (top gaps, ranked by {nm[1]}'s score)}")
     .show(x$disagree$a_not_b, row.names = FALSE)
-    cli_h2("{.strong {nm[2]}} captures, {.strong {nm[1]}} misses {.emph (ranked by score gap)}")
+    cli_h2("{.strong {nm[2]}} captures, {.strong {nm[1]}} misses {.emph (top gaps, ranked by {nm[2]}'s score)}")
     .show(x$disagree$b_not_a, row.names = FALSE)
+  }
+  if (!is.null(x$signature)) {
+    cli_h2("Signature words {.emph (each list's top terms that EVERY other list scores lower; score = this list, rival = best other)}")
+    for (i in ord) {
+      cli_text("{.strong {nm[i]}}")
+      sg <- x$signature[[i]]
+      if (nrow(sg)) .show(sg, row.names = FALSE)
+      else cli_text("{.emph  -- no distinctive words survived the filters}")
+    }
   }
   invisible(x)
 }
@@ -518,7 +659,7 @@ print.dictionary_compare <- function(x, ...) {
 # One pole's add-suggestions (the body shared by both poles). Selection reads the same
 # operative axis as eval/compare -- the seed centroid (unipolar) or pole difference (bipolar).
 .suggest_one <- function(pole_words, opp_words, E, n, raise_coherence, broaden_coverage,
-                         pool, rarity_words, spellcheck, stop) {
+                         pool, rarity_words, spellcheck, stop, dict = NA) {
   vocab <- rownames(E)
   if (length(pole_words) < 2) cli_abort("Each pole needs at least 2 words.")
   cpole <- colMeans(E[pole_words, , drop = FALSE])
@@ -529,7 +670,7 @@ print.dictionary_compare <- function(x, ...) {
   thr   <- median(pr[match(pole_words, vocab)])                   # as far out as a typical seed
 
   known <- c(pole_words, opp_words)
-  ok <- grepl("^[a-z]+$", vocab) & nchar(vocab) >= 3 & !(vocab %in% known) &
+  ok <- grepl("^[[:alpha:]]+$", vocab) & nchar(vocab) >= 3 & !(vocab %in% known) &
         !(vocab %in% stop) & pr >= thr
   if (!is.null(rarity_words)) {
     if (!is.unsorted(vocab))
@@ -537,7 +678,9 @@ print.dictionary_compare <- function(x, ...) {
         "i" = "Set {.code rarity_words = NULL} to skip the frequency filter."))
     ok <- ok & seq_along(vocab) <= round(rarity_words * nrow(E))
   }
-  if (spellcheck) { ci <- which(ok); ok[ci[!hunspell::hunspell_check(vocab[ci])]] <- FALSE }
+  if (spellcheck && !identical(dict, NA)) {
+    ci <- which(ok); ok[ci[!hunspell::hunspell_check(vocab[ci], dict = dict)]] <- FALSE
+  }
   ord  <- order(pr, decreasing = TRUE); ord <- ord[ok[ord]]
   near <- function(i) pole_words[which.max(as.numeric(E[pole_words, , drop = FALSE] %*% E[i, ]))]
   res  <- list()
@@ -615,6 +758,7 @@ dictionary_suggest <- function(dictionary, embeddings, dimension = NULL, n = 20,
   seed_df   <- .dict_seed_df(dictionary, dimension, rownames(E))
   dimension <- attr(seed_df, "dimension")
   stop      <- .get_stopwords(language)
+  hdict     <- if (spellcheck) .resolve_hunspell(language) else NA   # language-aware spellcheck
 
   pos <- seed_df$word[seed_df$score > 0]; neg <- seed_df$word[seed_df$score < 0]
   bipolar <- length(pos) > 0 && length(neg) > 0
@@ -625,7 +769,7 @@ dictionary_suggest <- function(dictionary, embeddings, dimension = NULL, n = 20,
   add <- list()
   for (p in poles) {
     a  <- .suggest_one(p$pole, p$opp, E, n, raise_coherence, broaden_coverage,
-                       pool, rarity_words, spellcheck, stop)
+                       pool, rarity_words, spellcheck, stop, hdict)
     nw <- length(unique(a$word))
     if (nw < n)
       cli_warn(c("Pole {.val {p$label}}: only {nw} on-theme candidate{?s} survived the filters (asked for {n}).",

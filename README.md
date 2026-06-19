@@ -2,374 +2,456 @@
   <img src="vdic_logo.png" alt="vdic logo" width="200"/>
 </p>
 
-# vdic: Build and Use Vec-tionaries for Multi-Modal Analysis
+# vdic: Build and Use Vec-tionaries for Text and Image Analysis
 
-A framework for building and using vector-based dictionaries (vec-tionaries) for text and image analysis in R. Provide seed words (either as a character vector or a dataframe with scores on dimensions of interest) that represent a theme or topic (e.g. "politics", "environment", "democracy"), and `vdic` learns axes in an embedding space (either word-embedding or multi-modal embedding). The result is a new vector that can be used to score *any* word or image on how closely it relates to the original topic of choice.
+A framework for building and using **vec-tionaries** — vector-based dictionaries — in R. You give `vdic` a handful of seed words that stand for a concept (e.g. "climate change", "populism", "fear"), and it learns an *axis* (a direction) in an embedding space. That axis becomes a small, shareable object that scores *any* word, document, or image on how strongly it points toward your concept.
 
-v1.0.0 currently offers word-embedding and text analysis capabilities.
-v2.0.0 (under development) will offer multi-modal and image analysis capabilities.
+Unlike keyword counting, a vec-tionary scores by *meaning*: a word contributes in proportion to how closely it aligns with the learned direction (cosine similarity), so off-topic and polysemous words are down-weighted automatically.
+
+**As of v1.2.0**, `vdic` covers the full construct-building loop — a toolkit for *curating* a dictionary, a builder, and an analyzer — and adds multi-modal (SigLIP) axes that let a text dictionary score images in a shared embedding space.
+
+## The workflow: three steps, three toolkits
+
+Building a vec-tionary is three moves, each with its own small family of functions:
+
+| Step | Goal | Functions |
+|------|------|-----------|
+| **1. Build a dictionary** | Curate seed words until they cleanly capture your construct | `dictionary_eval()` · `dictionary_compare()` · `dictionary_suggest()` |
+| **2. Build a vec-tionary** | Learn the axis from your seeds and the embeddings | `vectionary_builder()` |
+| **3. Apply it** | Score text (or images) and classify documents | `vectionary_analyze()` · `$mean()` / `$msp()` / … · `vectionary_diagnose()` |
+
+The rest of this README walks the three steps with one running example: a **climate-change** dictionary.
 
 ## Design
 
-**Users download**: Word embeddings (~1-7 GB, one-time)
+**You download** word embeddings once (~1–7 GB).
+**You build** lightweight vec-tionaries (~3 MB) that work *without* the embeddings.
 
-**Users build**: Lightweight vec-tionaries (~3 MB) that work without embeddings
-
-Once built, a vec-tionary is a small self-contained object. It can be saved, shared, and reused on any machine without requiring the original embedding files.
+Once built, a vec-tionary is a small self-contained object you can save, share, and reuse on any machine without the original embedding files.
 
 ## Installation
 
 ```r
-# Install from GitHub
+# install.packages("devtools")
 devtools::install_github("leofdantas/vdic")
 ```
 
-## Building Word Vec-tionaries
-
-### 1. Download Word Embeddings (One-Time)
+## Step 0 — Download embeddings (one-time)
 
 ```r
 library(vdic)
 
-# Download FastText embeddings (157 languages)
-download_embeddings(language = "pt", model = "fasttext", dimensions = 300)
-# Saves to: vdic_data/cc.pt.300.vec
+# FastText (157 languages)
+download_embeddings(language = "en", model = "fasttext", dimensions = 300)
+# Saves to: vdic_data/cc.en.300.vec
 
-# English word2vec (only English) or pt2vec (Portuguese)
-download_embeddings(language = "en", model = "word2vec", dimensions = 300)
-# Saves to: vdic_data/GoogleNews-vectors-negative300.vec
-
-# GloVe (English)
+# Also available: word2vec (English), GloVe (English)
 download_embeddings(language = "en", model = "glove", dimensions = 300)
 ```
 
-### 2. Create a Dictionary
+Any `.vec`/`.txt` embedding file (word + space-separated vector per line) also works — pass its path directly. FastText (with header) and GloVe (no header) are auto-detected.
 
-A dictionary can be either:
-- A **data frame** with a `word` column and one or more numeric dimension columns (binary 0/1 or continuous)
-- A **character vector** of seed words (creates a binary dictionary where all words score 1)
+---
+
+## Step 1 — Build a dictionary
+
+A dictionary is your operationalization of a concept. It can be:
+
+- a **character vector** of seed words — a *binary* dictionary where every word scores 1, or
+- a **data frame** with a `word` column plus one or more numeric dimension columns (use signed scores for a *bipolar* axis, e.g. `+1` clean energy / `−1` fossil fuels).
 
 ```r
-# Option A: Data frame with scores
-dictionary <- data.frame(
-  word = c("protect", "care", "help", "hurt", "prejudice", "kill"),
-  care = c(0.9, 0.8, 0.7, -0.8, -0.7, -0.9),
-  fairness = c(0.1, 0.2, 0.3, 0.0, -0.4, 0.0)
-)
+# A broad first draft of "climate change" -- a plain word list
+climate <- c(
+  "global", "climate", "change", "warming", "temperature", "weather",
+  "ecosystem", "species", "biodiversity", "extinction", "coral", "forest",
+  "deforestation", "emissions", "pollution", "carbon", "greenhouse", "methane",
+  "migration", "displacement", "population", "refugees",
+  "policy", "renewable", "sustainability", "adaptation")
 ```
 
-### 3. Build Vectionary
+A first draft is rarely the one you ship. The three curation functions below tell you **which words to drop, whether two lists measure the same thing, and which words to add** — each answer backed by the words that drive it, not just a score. They read the same parameter-free *operative axis* (the seed centroid, or pole difference when bipolar), so their verdicts agree.
+
+### `dictionary_eval()` — the report card
+
+Coherence + a per-word audit + confound checks:
 
 ```r
-my_vect <- vectionary_builder(
-  dictionary = dictionary,
-  embeddings = "vdic_data/cc.en.300.vec",
-  language = "en"
-)
-# Automatically saved to: ./vectionary.rds
-
-# Option B: Simple word list (binary dictionary)
-care_words <- c("protect", "care", "help", "safe", "nurture")
-care_vect <- vectionary_builder(
-  dictionary = care_words,
-  embeddings = "vdic_data/cc.en.300.vec",
-  language = "en",
-  save_path = "care_vectionary.rds"
-)
-
-# To skip auto-saving:
-my_vect <- vectionary_builder(dictionary, embeddings, save_path = NULL)
+dictionary_eval(climate, embeddings = "vdic_data/cc.en.300.vec")
 ```
 
-`vectionary_builder()` is greatly customizable, with different methods of optmization, word cleaning and processing options, and vocabulary expansion. More on these arguments on \textbf{Builder Options} below.
+```
+── Dictionary report card: score ──────────────────────────────────
+ℹ 26 seeds (unipolar) from 26/26 stems matched
 
-### 4. Analyze Text
+── Metrics ──
+Coherence 0.531 (mean seed-to-centroid cosine; tightness 0-1, size-sensitive)
+Word audit: 21/26 clean anchors; 5 flagged (ambiguous-generic 3, redundant 2)
+  word       flag              metric value note
+  change     ambiguous-generic |cos|  0.51
+  policy     ambiguous-generic |cos|  0.43
+  global     ambiguous-generic |cos|  0.40
+  emissions  redundant         cos    0.86  ~greenhouse
+  greenhouse redundant         cos    0.86  ~emissions
+ambiguous-generic = leans to the vocabulary's average (central / unmarked)
+direction; redundant = near-duplicate of another seed
+
+── Confounds ──
+does the axis track a nuisance (not the construct)?
+
+• Frequency -0.536 (confound, 28.7% var) -- leans toward more frequent words;
+  partly rewards common vocabulary over the construct.
+• Length 0.089 (negligible, 0.8% var) -- word length does not affect the score.
+• Generic direction 0.354 (confound, 12.5% var) -- leans into the vocabulary's
+  average direction; partly measures geometric centrality, not the construct.
+```
+
+How to read it:
+
+- **Coherence** — mean cosine of each seed to the list's centroid (tightness, $0$–$1$). Low means the seeds point in many directions.
+- **Word audit** — every seed is an `anchor` unless it is `redundant` (near-duplicate of another seed), `weak-offcentre` (a low outlier within its pole), `ambiguous-generic` (leans toward the vocabulary's average, unmarked direction), `ambiguous-xpole` (closer to the *other* pole, bipolar only), or `nonword` (fails the hunspell spellcheck). The table is worst-first and capped per flag; the full per-word table stays in `$cards`.
+- **Confounds** — does the axis track word **frequency**, **length**, or the **generic** direction instead of the construct?
+
+For a **bipolar** dictionary you get one card per pole plus a *contrast* (how opposed the poles are):
 
 ```r
-# Single text (returns named list)
-my_vect$mean("We need to protect vulnerable people")
-#> $care
-#> [1] 0.7787368
-#> $fairness
-#> [1] 0.6586703
+energy <- data.frame(
+  word  = c("renewable", "solar", "wind", "sustainable", "clean",
+            "efficiency", "conservation", "hydroelectric",
+            "fossil", "coal", "oil", "petroleum", "pollution",
+            "emissions", "drilling", "combustion"),
+  score = c(rep(1, 8), rep(-1, 8)))
+
+dictionary_eval(energy, embeddings = "vdic_data/cc.en.300.vec")
+```
+
+```
+── Dictionary report card: score ──────────────────────────────────
+ℹ 16 seeds (8 high / 8 low) from 16/16 stems matched
+
+── High pole (+) ──
+Coherence 0.649 (mean seed-to-centroid cosine; tightness 0-1, size-sensitive)
+✔ Word audit: all 8 seeds are clean anchors
+
+── Low pole (-) ──
+Coherence 0.649 (mean seed-to-centroid cosine; tightness 0-1, size-sensitive)
+Word audit: 7/8 clean anchors; 1 flagged (weak-offcentre 1)
+  word       flag           metric value note
+  combustion weak-offcentre z      -2.10
+weak-offcentre = low outlier within its pole
+
+── Contrast ──
+Pole-means cosine 0.626 (poles still share much direction; lower = more opposed)
+```
+
+### `dictionary_compare()` — are two operationalizations the same?
+
+When you have rival seed lists for a construct, compare them. You get the **heading cosine** between every pair of axes, a threshold-free **cross-seed AUC** (can each axis rank its own seeds above a rival's?), and — for exactly two lists — the **disagreement word-lists**: what each captures that the other misses, ranked by the *capturing* list's own score (the terms most central to it, not merely the widest gap).
+
+```r
+weather   <- c("hurricane", "flood", "drought", "wildfire", "heatwave", "storm",
+               "cyclone", "typhoon", "flooding", "wildfires", "tornado",
+               "blizzard", "hurricanes", "storms")
+technical <- c("emissions", "carbon", "dioxide", "greenhouse", "methane",
+               "atmospheric", "concentrations", "anthropogenic", "warming",
+               "temperatures", "fossil", "fuels", "combustion", "aerosols",
+               "emission", "radiative")
+
+dictionary_compare(list(weather = weather, technical = technical),
+                   embeddings = "vdic_data/cc.en.300.vec")
+```
+
+```
+── Dictionary comparison: score ───────────────────────────────────
+ℹ weather vs technical: heading |cos| 0.2 -- near-orthogonal -- distinct constructs
+
+── Heading |cos| (1 = same axis, 0 = orthogonal) ──
+          weather technical
+weather       1.0       0.2
+technical     0.2       1.0
+
+── Cross-seed AUC (row axis ranks ITS seeds above the column's; ~.5 = interchangeable, -- = self) ──
+          weather technical
+weather   -       1.000
+technical 1.000   -
+
+── weather captures, technical misses (top gaps, ranked by weather's score) ──
+       word projA projB   gap
+     floods 0.770 0.198 0.572
+      rains 0.696 0.136 0.560
+ torrential 0.683 0.054 0.629
+  tornadoes 0.628 0.118 0.510
+  downpours 0.613 0.086 0.527
+  mudslides 0.611 0.084 0.527
+
+── technical captures, weather misses (top gaps, ranked by technical's score) ──
+       word projA projB    gap
+      gases 0.112 0.831 -0.719
+ pollutants 0.190 0.686 -0.496
+     sulfur 0.067 0.662 -0.595
+   nitrogen 0.014 0.640 -0.626
+    emitted 0.125 0.612 -0.487
+     gasses 0.036 0.590 -0.554
+```
+
+Here the two lists are **near-orthogonal** ($|\cos| = 0.2$): "extreme-weather events" and "atmospheric chemistry" are genuinely different constructs, and the word-lists show exactly how.
+
+> **More than two lists?** `dictionary_compare()` scales up: instead of a pair's disagreement lists it prints each list's **one-vs-rest signature** (the words it scores high that *every* rival scores lower), plus a readability **summary** that orders the matrices so near-duplicates sit together, names the broadest and most distinct lists, the closest pair, and flags any pair with $|\cos| \ge 0.9$ as a merge candidate. (Unipolar lists only.)
+
+### `dictionary_suggest()` — which words to add
+
+Two add-modes: **sharpen** (the strongest on-pole words, which tighten the axis) and **broaden** (on-theme words in new directions, via greedy farthest-point). For a bipolar list both poles are handled.
+
+```r
+dictionary_suggest(energy, embeddings = "vdic_data/cc.en.300.vec")
+```
+
+```
+── Words to add: score ─────────────────────────────────────────────
+── Pole: low (-) ──
+Sharpen the axis (strongest on-pole words)
+         word axis_proj nearest_seed
+        fumes     0.357    pollution
+        crude     0.345          oil
+      barrels     0.342          oil
+        shale     0.325         coal
+ hydrocarbons     0.315    petroleum
+          gas     0.311          oil
+
+Broaden coverage (on-theme, new directions)
+        word axis_proj nearest_seed
+       shale     0.325         coal
+    spillage     0.303    pollution
+     gasoline     0.274          oil
+      vapors     0.273   combustion
+```
+
+### Guidelines (the curation loop)
+
+1. **Start focused.** One construct, ideally one facet at a time — narrow lists cohere; grab-bags don't.
+2. **Run `dictionary_eval()`.** Drop `redundant` near-duplicates, reconsider `ambiguous-generic` words, inspect `weak-offcentre` outliers and any cross-pole leakage. Watch the confounds — a strong frequency or generic-direction reading means the axis is partly measuring a nuisance.
+3. **Compare rivals with `dictionary_compare()`** when you're unsure two lists capture the same thing. Near-orthogonal axes are distinct constructs; $|\cos| \ge 0.9$ pairs are duplicates to merge.
+4. **Extend with `dictionary_suggest()`** — *sharpen* to raise coherence, *broaden* to widen coverage, then re-evaluate.
+5. **Iterate** until the card is clean. Then build.
+
+> Curation reads the **operative axis** (raw seed geometry), never a learned/regularized one, and never edits your list — every decision stays yours. The tools default to a `hunspell` spellcheck and respect `language` (e.g. `language = "es"` keeps accented words and validates them against Spanish rather than silently filtering to English).
+
+---
+
+## Step 2 — Build the vec-tionary
+
+Once the seeds are clean, learn the axis:
+
+```r
+climate_vect <- vectionary_builder(
+  dictionary = climate,
+  embeddings = "vdic_data/cc.en.300.vec",
+  language   = "en")
+# Automatically saved to ./vectionary.rds  (pass save_path = NULL to skip)
+
+# A bipolar (graded) dictionary builds the same way:
+energy_vect <- vectionary_builder(energy, "vdic_data/cc.en.300.vec",
+                                  save_path = "energy_vectionary.rds")
+```
+
+`vectionary_builder()` is highly configurable — regularization method, lambda selection, vocabulary/stem expansion, spell-checking, and stopword handling. See **Builder Options** below.
+
+---
+
+## Step 3 — Apply the vec-tionary
+
+A built vec-tionary scores text through metric methods on the object:
+
+```r
+# Single text (returns a named list, one element per dimension)
+climate_vect$mean("Rising sea levels are displacing coastal communities")
+#> $score
+#> [1] 0.5413
 
 # All metrics at once
-my_vect$metrics("We need to protect vulnerable citizens from harm")
-#> $mean
-#> $mean$care
-#> [1] 0.7863876
-# $mean$fairness
-#> [1] 0.6470454
-# $msp
-# $msp$care
-# [1] 0.818471
-# $msp$fairness
-# [1] 0.6846322
-# $sd
-# $sd$care
-# [1] 0.2536958
-# $sd$fairness
-# [1] 0.2501337
-# $se
-# $se$care
-# [1] 0.1134562
-# $se$fairness
-# [1] 0.1118632
-# $top_10
-# $top_10$care
-# [1] 0.7863876
-# $top_10$fairness
-# [1] 0.6470454
-# $top_20
-# $top_20$care
-# [1] 0.7863876
-# $top_20$fairness
-# [1] 0.6470454
-
-# Batch analysis: pass a vector of texts (returns named list of vectors)
-texts <- c("Protect vulnerable citizens", "Justice for all", "The sky is blue")
-vectionary_analyze(my_vect, texts, metric = "mean")
-#> $care
-#> [1] 0.6830967 0.2095457 0.1882977
-#> $fairness
-#> [1] 0.6262091 0.2325090 0.1148472
-
-# Convert to data frame when needed
-as.data.frame(result)
+climate_vect$metrics("Record droughts and wildfires devastated the region")
+#> $mean$score      [1] 0.6072
+#> $msp$score       [1] 0.4128
+#> $sd$score        [1] 0.2233
+#> $se$score        [1] 0.0993
+#> $top_10$score    [1] 0.6072
+#> $top_20$score    [1] 0.6072
 ```
 
-### 5. Topic Classification
+### Batch analysis
 
-Identify which documents exceed a statistical threshold on each dimension. When you pass `alpha` to `vectionary_analyze()`, the function computes a one-tailed t-test threshold per dimension and appends logical `_topic` columns to the result.
+```r
+texts <- c("Carbon emissions hit a new high",
+           "The local football team won",
+           "Coastal flooding forced evacuations")
 
-The threshold for each dimension is:
+vectionary_analyze(climate_vect, texts, metric = "mean")
+#> $score
+#> [1] 0.5894 0.0712 0.5331
+```
+
+### Topic classification
+
+Pass `alpha` to flag documents that exceed a per-dimension statistical threshold (a one-tailed t-test on the corpus of document means):
 
 $$\text{threshold}_d = \bar{x}_d + t_{1-\alpha,\, n-1} \cdot s_d$$
 
-where $\bar{x}_d$ is the corpus mean, $s_d$ is the corpus (sample) standard deviation, and $t_{1-\alpha,n-1}$ is the critical value from the t-distribution.
-
 ```r
-texts <- c(
-  "We must protect the vulnerable and care for the weak",
-  "Justice demands equal treatment under the law",
-  "The weather is nice today",
-  "Loyalty to your group is a sacred duty"
-)
-
-# alpha = 0.15 → documents scoring above the 85th percentile threshold
-result <- vectionary_analyze(my_vect, texts, metric = "mean", alpha = 0.15)
-result$care        # numeric vector of scores
-result$care_topic  # logical vector of topic flags
-
-# Inspect the thresholds used
+result <- vectionary_analyze(climate_vect, texts, metric = "mean", alpha = 0.15)
+result$score         # numeric scores
+result$score_topic   # logical: above threshold?
 attr(result, "threshold")
-
-# Convert to data frame
 as.data.frame(result)
 ```
 
-**Notes:**
-- Requires at least 2 documents (a single text produces a warning and skips classification)
-- Works with any single metric (`"mean"`, `"msp"`, `"sd"`, `"se"`, `"top_10"`, `"top_20"`)
-- When `metric = "all"`, topic flags are stored in `result$topic` (a named list)
-- Lower `alpha` values (e.g., 0.01) produce stricter thresholds; higher values (e.g., 0.10) are more lenient
+Requires ≥ 2 documents. Lower `alpha` → stricter threshold.
 
-### 6. Diagnose
+### Diagnose
 
-Verify that your seed words rank near the top of the projections:
+Check that your seed words rank near the top of the projections:
 
 ```r
-my_vect$diagnose()
-# Or: vectionary_diagnose(my_vect, n = 50, dimension = "care")
+climate_vect$diagnose()
+# Or: vectionary_diagnose(climate_vect, n = 50)
 ```
 
-### 7. Save and Load
+### Save and load
 
 ```r
-# Vec-tionaries are automatically saved during build
-# To load later:
-my_vect <- readRDS("vectionary.rds")
+saveRDS(climate_vect, "climate_vectionary.rds")   # ~3 MB, no embeddings needed
+climate_vect <- readRDS("climate_vectionary.rds")
 ```
+
+---
 
 ## Metrics
 
-Each vec-tionary object exposes the following methods via the `$` operator:
+Each vec-tionary exposes these methods via `$`:
 
 | Method | Description |
 |--------|-------------|
 | `$mean(text)` | Arithmetic mean of word projections |
 | `$msp(text)` | Mean square projection |
-| `$sd(text)` | Standard deviation of projections |
+| `$sd(text)` | Standard deviation of projections (sample, $n-1$) |
 | `$se(text)` | Standard error of the mean |
-| `$top_10(text)` | Mean of 10 highest projections |
-| `$top_20(text)` | Mean of 20 highest projections |
-| `$metrics(text)` | All six metrics at once |
-| `$diagnose(n)` | Diagnostic report (top words, seed word ranks) |
+| `$top_10(text)` | Mean of the 10 highest projections |
+| `$top_20(text)` | Mean of the 20 highest projections |
+| `$metrics(text)` | All six at once |
+| `$diagnose(n)` | Diagnostic report (top words, seed-word ranks) |
 
-All metrics accept a single string or a character vector for batch analysis. Results are returned as named lists (one element per dimension). Use `as.data.frame()` to convert.
+All accept a single string or a character vector (batch). Results are named lists (one element per dimension); use `as.data.frame()` to convert. Scores are frequency-sensitive and length-normalized, and are **not** comparable across different vec-tionaries.
 
 ## Builder Options
 
-### Regularization Methods
+### Regularization methods
 
 ```r
-# Ridge regression (default) -- smooth, dense axes
-vectionary_builder(dictionary, embeddings, method = "ridge")
-
-# Elastic net -- balanced sparsity
-vectionary_builder(dictionary, embeddings, method = "elastic_net", l1_ratio = 0.5)
-
-# LASSO -- maximum sparsity
-vectionary_builder(dictionary, embeddings, method = "lasso")
-
-# Duan et al. (2025) method -- unit norm constraint, no regularization
-vectionary_builder(dictionary, embeddings, method = "duan")
+vectionary_builder(dict, emb, method = "ridge")                       # default: dense axes
+vectionary_builder(dict, emb, method = "elastic_net", l1_ratio = 0.5) # balanced sparsity
+vectionary_builder(dict, emb, method = "lasso")                       # maximum sparsity
+vectionary_builder(dict, emb, method = "duan")                        # unit-norm constraint
 ```
 
-### Lambda Selection (Regularization Strength)
-
-Lambda controls regularization strength. The default is GCV (Generalized Cross-Validation), which automatically selects the optimal value.
+### Lambda (regularization strength)
 
 ```r
-# GCV (default) -- closed-form optimal lambda for ridge regression
-# For lasso/elastic_net, uses glmnet::cv.glmnet internally
-vectionary_builder(dictionary, embeddings, lambda = "gcv")
-
-# Fixed lambda
-vectionary_builder(dictionary, embeddings, lambda = 0.1)
-
-# Custom range: test these values, select best based on validity + differentiation
-vectionary_builder(dictionary, embeddings, lambda = c(0.01, 0.1, 0.5, 1))
+vectionary_builder(dict, emb, lambda = "gcv")               # default: auto-selected
+vectionary_builder(dict, emb, lambda = 0.1)                 # fixed
+vectionary_builder(dict, emb, lambda = c(0.01, 0.1, 0.5, 1))# grid: best validity + differentiation
 ```
 
-When a numeric vector of lambdas is provided, the builder tests each value and selects the one that:
-1. Meets the minimum validity threshold (`min_validity`, default 0.75)
-2. Has the lowest axis correlation (best differentiation between dimensions)
+GCV is closed-form for ridge; for lasso/elastic net the builder uses `glmnet::cv.glmnet`. A numeric vector is searched for the value that clears `min_validity` (AUC for binary, $R^2$ for continuous) with the lowest axis correlation.
 
-Validity is measured as AUC (binary dictionaries) or R-squared (continuous dictionaries).
-
-### Reproducibility (Seed)
-
-All random operations (Duan method initialization, AUC validation sampling) are controlled by a single seed. If not provided, a random seed is generated and stored in the vec-tionary metadata.
+### Vocabulary and stem expansion
 
 ```r
-# Set seed for reproducible builds
-my_vect <- vectionary_builder(dictionary, embeddings, seed = 574)
+# Add the top-N highest-projecting words to the dictionary, then rebuild
+vectionary_builder(dict, emb, expand_vocab = 100, expand_positive = TRUE)
 
-# Check which seed was used (including auto-generated ones)
-my_vect$metadata$seed
+# Expand stem patterns to all matching inflections in the vocabulary
+vectionary_builder(c("warm*", "pollut*"), emb, expand_stem = TRUE)
+# warm -> warming, warmer, ...   pollut -> pollution, pollutants, ...
 ```
 
-### Language and Spell Checking
-
-Any language from [wooorm/dictionaries](https://github.com/wooorm/dictionaries) is supported (auto-downloaded)
+### Language, spell-checking, stopwords, reproducibility
 
 ```r
-# Language controls stopwords and spell checking
-vectionary_builder(dictionary, embeddings, language = "pt")
-vectionary_builder(dictionary, embeddings, language = "en")
-vectionary_builder(dictionary, embeddings, language = "fr")
-
-# Disable spell checking (on by default)
-vectionary_builder(dictionary, embeddings, spellcheck = FALSE)
-
-# Disable stopword removal
-vectionary_builder(dictionary, embeddings, remove_stopwords = FALSE)
-
-# Custom stopwords
-vectionary_builder(dictionary, embeddings, remove_stopwords = c("the", "a", "an"))
+vectionary_builder(dict, emb, language = "pt")                 # any wooorm/dictionaries language
+vectionary_builder(dict, emb, spellcheck = FALSE)              # default: on
+vectionary_builder(dict, emb, remove_stopwords = c("the","a")) # custom list
+vectionary_builder(dict, emb, binary_word = FALSE)             # use graded scores as-is
+vectionary_builder(dict, emb, seed = 574)                      # reproducible build
 ```
 
-### Vocabulary Expansion
+## Image analysis (multi-modal)
 
-Expand the training dictionary by finding semantically related words in the embeddings:
+With SigLIP embeddings, a **text** dictionary learns an axis in a shared text–image space, then scores images directly:
 
 ```r
-vectionary_builder(
-  dictionary, embeddings,
-  expand_vocab = 100,       # add top-100 related words
-  expand_positive = TRUE     # keep only positively-projected words (default)
-)
+# Requires Python with transformers/torch via reticulate
+download_embeddings(model = "siglip")
+
+vect <- vectionary_builder(climate, embeddings = "siglip", modality = "multimodal")
+
+analyze_image(vect, images = c("flood.jpg", "solar_farm.jpg"))  # data frame of scores
+analyze_text(vect,  text   = "a wildfire at night")             # same axis, text side
 ```
 
-This first learns preliminary axes from the seed words, finds the top-N words with highest projections, adds them to the dictionary, and rebuilds the axes with the expanded dictionary.
+Image embedding/analysis require Python (`transformers`, `torch`, `Pillow`, `sentencepiece`) reachable through `reticulate`; text-only workflows are pure R.
 
-### Stem Expansion
-
-Expand dictionary patterns like `abandon*` to all matching words in the embeddings:
-
-```r
-dict <- c("abandon*", "care*", "protect*")
-vectionary_builder(dict, embeddings, expand_stem = TRUE)
-# Expands to: abandon, abandoned, abandoning, abandonment, care, caring, ...
-```
-
-### Binary vs. Continuous Dictionaries
-
-```r
-# Binary (default): non-zero values become 1, NA/blank become 0
-vectionary_builder(dictionary, embeddings, binary_word = TRUE)
-
-# Continuous: use graded scores as provided
-vectionary_builder(dictionary, embeddings, binary_word = FALSE)
-```
-
-## Build Pipeline
-
-The `vectionary_builder()` function runs a 7-step pipeline:
-
-1. **Filter embedding vocabulary** -- Remove non-alphabetic tokens, stopwords, and misspelled words (hunspell). Writes a cleaned temp copy of the embeddings.
-2. **Expand stem patterns** -- If `expand_stem = TRUE`, match patterns like `abandon*` to all inflected forms in the filtered embeddings.
-3. **Select lambda** -- Automatically choose the regularization parameter via GCV (ridge), cross-validation (elastic net/lasso), or grid search.
-4. **Learn axes** -- For each dimension, solve a regression problem mapping seed-word embeddings to dictionary scores. The learned axis is a vector in embedding space.
-5. **Expand vocabulary** (optional) -- Find the top-N words with highest projections onto the preliminary axes and add them to the dictionary.
-6. **Rebuild** (if expanded) -- Re-learn axes using the enlarged dictionary for improved signal.
-7. **Project full vocabulary** -- Compute dot products between every word in the filtered embeddings and the learned axes. Package into a `Vec-tionary` S3 object and save.
-
-## Embedding Sources
+## Embedding sources
 
 | Model | Languages | Download |
 |-------|-----------|----------|
-| FastText | 157 languages | `download_embeddings("pt", "fasttext")` |
+| FastText | 157 languages | `download_embeddings("en", "fasttext")` |
 | word2vec | English | `download_embeddings("en", "word2vec")` |
 | GloVe | English | `download_embeddings("en", "glove")` |
+| SigLIP 2 | Multi-modal (text + image) | `download_embeddings(model = "siglip")` |
 
-Custom embeddings in `.vec` or `.txt` format (word followed by space-separated vector components, one word per line) can be passed directly to `vectionary_builder()`. Both FastText (with header line) and GloVe (without header) formats are auto-detected.
+## Build pipeline
 
-## Technical Details
+`vectionary_builder()` runs a 7-step pipeline:
 
-- All word embeddings are **normalized to unit Euclidean norm** before axis learning and projection. This removes magnitude bias from FastText/word2vec (frequent words have inflated norms) and makes projections cosine-similarity-based.
-- All learned axes (ridge, elastic net, lasso, and Duan) are **unit-normalized** after solving, so a word's projection is a pure cosine similarity in $[-1, 1]$.
+1. **Filter vocabulary** — drop non-alphabetic tokens (Unicode `\p{L}`), case-variant duplicates, stopwords, and misspellings (hunspell).
+2. **Expand stems** — `warm*` → all inflected forms (if `expand_stem = TRUE`).
+3. **Select lambda** — GCV (ridge), cross-validation (lasso/elastic net), or grid search.
+4. **Learn axes** — per dimension, solve a regression from seed embeddings to scores.
+5. **Expand vocabulary** — optionally add the top-N highest-projecting words.
+6. **Rebuild** — re-learn on the enlarged dictionary if expansion happened.
+7. **Project full vocabulary** — one matrix multiply; package and save the `Vec-tionary`.
+
+## Technical details
+
+- Embeddings are **unit-normalized** before learning and projection, so dot products are cosine similarities (this removes FastText/word2vec frequency-norm bias).
+- All learned axes (ridge, elastic net, lasso, Duan) are **unit-normalized** after solving, so a word's projection is a pure cosine in $[-1, 1]$.
 - The Duan et al. (2025) method uses constrained optimization (`alabama::auglag`) with a unit-norm axis constraint and no regularization.
-- Non-alphabetic tokens (numbers, codes, symbols) are **always** filtered from the embedding vocabulary using Unicode-aware regex (`\p{L}`), supporting accented characters and non-Latin scripts.
-- Case-variant duplicates (e.g., "Gás" and "gás") are deduplicated during filtering, keeping the first occurrence (highest-frequency vector in FastText).
-- GCV (Golub et al., 1979) selects lambda by minimizing $GCV(\lambda) = \frac{n^{-1} \|y - S_\lambda y\|^2}{(1 - \text{tr}(S_\lambda)/n)^2}$ via SVD of the embedding matrix.
-- Topic classification uses a one-tailed t-test: threshold = $\bar{x} + t_{1-\alpha,\, n-1} \cdot s$ per dimension, where $\bar{x}$ and $s$ are the corpus (sample) mean and standard deviation.
-- All standard deviations and standard errors use **sample** (Bessel-corrected, $n-1$ denominator) statistics, not population.
-- RNG state is preserved and restored in functions that call `set.seed()`, so building a vec-tionary does not alter the user's random number stream.
+- GCV (Golub et al., 1979) minimizes $GCV(\lambda) = \frac{n^{-1}\, \lVert y - S_\lambda y \rVert^2}{(1 - \mathrm{tr}(S_\lambda)/n)^2}$ via SVD of the embedding matrix.
+- Standard deviations / errors use **sample** ($n-1$) statistics; topic thresholds use a one-tailed t-test.
+- RNG state is saved and restored around every `set.seed()`, so building never perturbs your random stream.
 
 ## Requirements
 
-- R >= 3.5.0
+- R ≥ 3.5.0
 - R.utils, cli, MASS, glmnet, data.table (installed automatically)
-- Optional: hunspell (spell checking), alabama (Duan method)
+- Optional: `hunspell` (spell-checking, used by the dictionary tools and builder), `alabama` (Duan method), `reticulate` + Python (image analysis)
 
 ## Citation
 
 ```bibtex
 @software{vdic,
-  title = {vdic: Build and Use Vec-tionaries for Multi-Modal Analysis},
+  title  = {vdic: Build and Use Vec-tionaries for Text and Image Analysis},
   author = {Leonardo Dantas},
-  year = {2026},
-  url = {https://github.com/leofdantas/vdicverse}
+  year   = {2026},
+  note   = {R package version 1.2.0},
+  url    = {https://github.com/leofdantas/vdic}
 }
 ```
 
-## Related Work
+## Related work
 
-This package generalizes the vec-tionary approach introduced in:
+Generalizes the vec-tionary approach introduced in:
 
-- Duan, Z., Shao, A., Hu, Y., Lee, H., Liao, X., Suh, Y. J., Kim, J., et al. (2025). "Constructing Vec-Tionaries to Extract Message Features from Texts: A Case Study of Moral Content." *Political Analysis*, 1--21. doi:10.1017/pan.2025.6.
+- Duan, Z., Shao, A., Hu, Y., Lee, H., Liao, X., Suh, Y. J., Kim, J., et al. (2025). "Constructing Vec-Tionaries to Extract Message Features from Texts: A Case Study of Moral Content." *Political Analysis*, 1–21. doi:10.1017/pan.2025.6.
 - https://github.com/ZeningDuan/vMFD
 
 ## License
